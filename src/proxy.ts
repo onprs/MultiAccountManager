@@ -39,7 +39,7 @@ export function proxy(request: NextRequest) {
   response.headers.set("X-Frame-Options", "DENY");
   response.headers.set(
     "Permissions-Policy",
-    "camera=(self), microphone=(), geolocation=(), payment=(), publickey-credentials-get=(self), usb=()",
+    "camera=(), microphone=(), geolocation=(), payment=(), publickey-credentials-get=(self), usb=()",
   );
   if (process.env.NODE_ENV === "production") {
     response.headers.set(

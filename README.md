@@ -4,7 +4,7 @@ Account Vault is an internal Next.js application for encrypted AI account record
 
 The application starts without a database, validates an existing PostgreSQL instance through `/setup`, runs checksum migrations, and writes an authenticated encrypted `runtime.enc`. Setup creates the unique owner and a user-verified Passkey without a temporary password, then requires browser-side Vault initialization and Recovery Kit confirmation before READY. Security settings support named backup credentials, session-bound Passkey step-up, and transactional last-credential deletion protection.
 
-Vault Root Key wrapping, account-record encryption, blind indexes, Argon2id, XChaCha20-Poly1305, and TOTP generation run in an isolated same-origin Crypto Worker. The server accepts only versioned encrypted envelopes for sensitive account fields. The account workspace supports encrypted create/edit/archive/delete, server-side pagination and filters, exact blind-index email lookup, local `otpauth://totp`/Base32/image/camera import, 2FAuth schema-1 JSON migration, on-demand masked OTP generation with server clock checks, and Passkey-gated recovery-code reveal/copy.
+Vault Root Key wrapping, account-record encryption, blind indexes, Argon2id, XChaCha20-Poly1305, and TOTP generation run in an isolated same-origin Crypto Worker. The server accepts only versioned encrypted envelopes for sensitive account fields. The account workspace supports encrypted create/edit/archive/delete, server-side pagination and filters, exact blind-index email lookup, local `otpauth://totp`/Base32/image import, 2FAuth schema-1 JSON migration, on-demand masked OTP generation with server clock checks, and Passkey-gated recovery-code reveal/copy.
 
 ## Toolchain
 
