@@ -22,7 +22,12 @@ describe("managed account schemas", () => {
       managedAccountPrivatePayloadSchema.parse({
         version: 1,
         loginEmail: "owner@example.test",
+        password: "  exact password  ",
         phone: "+12025550123",
+        emailOtpEndpoint: "https://mail-code.example.test/inbox",
+        emailOtpCdk: "email-cdk-value",
+        smsEndpoint: "https://sms-code.example.test/inbox",
+        smsEndpointCdk: "sms-cdk-value",
         totp: {
           type: "totp",
           issuer: "OpenAI",
@@ -33,7 +38,13 @@ describe("managed account schemas", () => {
           period: 30,
         },
       }),
-    ).toMatchObject({ version: 1, loginEmail: "owner@example.test" });
+    ).toMatchObject({
+      version: 1,
+      loginEmail: "owner@example.test",
+      password: "  exact password  ",
+      emailOtpCdk: "email-cdk-value",
+      smsEndpointCdk: "sms-cdk-value",
+    });
   });
 
   it("rejects plaintext fields at the server API boundary", () => {

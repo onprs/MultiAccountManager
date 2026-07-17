@@ -14,6 +14,10 @@ test("bootstraps the owner and signs in with a user-verified Passkey", async ({
     throw new Error("Passkey E2E credentials are not configured");
   }
 
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
+    origin: "http://localhost:33002",
+  });
+
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("WebAuthn.enable");
   const { authenticatorId } = await cdp.send("WebAuthn.addVirtualAuthenticator", {
@@ -50,7 +54,7 @@ test("bootstraps the owner and signs in with a user-verified Passkey", async ({
     await expect(page).toHaveURL(/\/login$/, { timeout: 15_000 });
     await expect(page.locator('input[autocomplete="username webauthn"]')).toBeVisible();
     await page.getByRole("button", { name: "使用 Passkey 登录" }).click();
-    await expect(page).toHaveURL(/\/accounts$/);
+    await expect(page).toHaveURL(/\/accounts$/, { timeout: 15_000 });
     await expect(
       page.getByRole("heading", { name: "初始化客户端保险库" }),
     ).toBeVisible();
@@ -80,11 +84,21 @@ test("bootstraps the owner and signs in with a user-verified Passkey", async ({
     await expect(page.getByRole("heading", { name: "账号" })).toBeVisible();
 
     const accountEmail = "managed@example.test";
+    const accountPassword = "account-password-exact-value";
+    const emailOtpEndpoint = "https://mail-code.example.test/inbox";
+    const emailOtpCdk = "email-cdk-exact-value";
+    const smsEndpoint = "https://sms-code.example.test/inbox";
+    const smsEndpointCdk = "sms-cdk-exact-value";
     const totpSecret = "JBSWY3DPEHPK3PXP";
     await page.getByRole("button", { name: "添加账号" }).click();
     const accountDialog = page.getByRole("dialog", { name: "添加托管账号" });
     await accountDialog.getByLabel("运营别名").fill("E2E OpenAI");
     await accountDialog.getByLabel("登录邮箱").fill(accountEmail);
+    await accountDialog.getByLabel("登录密码（可选）", { exact: true }).fill(accountPassword);
+    await accountDialog.getByLabel("邮箱接码地址（可选）").fill(emailOtpEndpoint);
+    await accountDialog.getByLabel("邮箱接码地址登录 CDK（可选）", { exact: true }).fill(emailOtpCdk);
+    await accountDialog.getByLabel("手机号接码地址（可选）").fill(smsEndpoint);
+    await accountDialog.getByLabel("手机号接码 CDK（可选）", { exact: true }).fill(smsEndpointCdk);
     await accountDialog
       .getByLabel("otpauth URI 或 Base32 Secret")
       .fill(totpSecret);
@@ -100,12 +114,30 @@ test("bootstraps the owner and signs in with a user-verified Passkey", async ({
     const accountResponse = await accountResponsePromise;
     expect(accountResponse.status()).toBe(201);
     const accountRequestBody = accountResponse.request().postData() || "";
-    expect(accountRequestBody).not.toContain(accountEmail);
-    expect(accountRequestBody).not.toContain(totpSecret);
+    for (const plaintext of [
+      accountEmail,
+      accountPassword,
+      emailOtpEndpoint,
+      emailOtpCdk,
+      smsEndpoint,
+      smsEndpointCdk,
+      totpSecret,
+    ]) {
+      expect(accountRequestBody).not.toContain(plaintext);
+    }
     expect(accountRequestBody).not.toContain("secretBase32");
     expect(accountRequestBody).toContain("vault-data-v1");
 
     await expect(page.getByText("E2E OpenAI")).toBeVisible();
+    const accountRow = page.locator("[data-account-id]").filter({ hasText: "E2E OpenAI" });
+    await expect(accountRow.getByText("********", { exact: true })).toBeVisible();
+    await accountRow.getByRole("button", { name: "显示密码" }).click();
+    await expect(accountRow.getByText(accountPassword, { exact: true })).toBeVisible();
+    await accountRow.getByRole("button", { name: "复制密码" }).click();
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(accountPassword);
+    await accountRow.getByRole("button", { name: "隐藏密码" }).click();
+    await expect(accountRow.getByText("********", { exact: true })).toBeVisible();
+
     const emailSearchPromise = page.waitForResponse(
       (response) =>
         response.url().includes("/api/v1/accounts?") &&
@@ -126,6 +158,13 @@ test("bootstraps the owner and signs in with a user-verified Passkey", async ({
 
     await page.getByRole("button", { name: "查看账号详情" }).click();
     const detailsDialog = page.getByRole("dialog", { name: "E2E OpenAI" });
+    await expect(detailsDialog.getByLabel("登录密码（可选）", { exact: true })).toHaveValue(accountPassword);
+    await detailsDialog.getByRole("button", { name: "Passkey 验证并编辑" }).click();
+    await expect(detailsDialog.getByLabel("邮箱接码地址（可选）")).toHaveValue(emailOtpEndpoint);
+    await expect(detailsDialog.getByLabel("邮箱接码地址登录 CDK（可选）", { exact: true })).toHaveValue(emailOtpCdk);
+    await expect(detailsDialog.getByLabel("手机号接码地址（可选）")).toHaveValue(smsEndpoint);
+    await expect(detailsDialog.getByLabel("手机号接码 CDK（可选）", { exact: true })).toHaveValue(smsEndpointCdk);
+
     const recoveryCodes = ["RECOVERY-ONE-2026", "RECOVERY-TWO-2026"];
     await detailsDialog.getByLabel("批量导入").fill(recoveryCodes.join("\n"));
     const recoveryImportPromise = page.waitForResponse(
@@ -158,8 +197,17 @@ test("bootstraps the owner and signs in with a user-verified Passkey", async ({
     const accountUpdate = await accountUpdatePromise;
     expect(accountUpdate.status()).toBe(200);
     const updateRequestBody = accountUpdate.request().postData() || "";
-    expect(updateRequestBody).not.toContain(sensitiveNote);
-    expect(updateRequestBody).not.toContain(accountEmail);
+    for (const plaintext of [
+      sensitiveNote,
+      accountEmail,
+      accountPassword,
+      emailOtpEndpoint,
+      emailOtpCdk,
+      smsEndpoint,
+      smsEndpointCdk,
+    ]) {
+      expect(updateRequestBody).not.toContain(plaintext);
+    }
 
     const ready = await page.request.get("/api/health/ready");
     expect(ready.status()).toBe(200);

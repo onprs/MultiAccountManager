@@ -21,6 +21,7 @@ import type { VaultCryptoClient } from "@/crypto";
 import { authClient } from "@/lib/auth-client";
 import { AccountIntegrationStatus } from "@/components/integrations/AccountIntegrationStatus";
 import { RecoveryCodeManager } from "./RecoveryCodeManager";
+import { SecretInput } from "./SecretInput";
 import { TotpEditor } from "./TotpEditor";
 
 type ApiFailure = { message?: string };
@@ -60,13 +61,27 @@ export function AccountDetails({
         const value = String(values.get(name) ?? "").normalize("NFKC").trim();
         return value || undefined;
       };
+      const optionalSecret = (name: string) => {
+        const value = String(values.get(name) ?? "");
+        return value.length ? value : undefined;
+      };
       const payload = managedAccountPrivatePayloadSchema.parse({
         version: 1,
         loginEmail: optional("loginEmail")?.toLowerCase(),
+        password: optionalSecret("password"),
         phone: optional("phone"),
+        emailOtpEndpoint: sensitiveRevealed
+          ? optional("emailOtpEndpoint")
+          : decrypted.emailOtpEndpoint,
+        emailOtpCdk: sensitiveRevealed
+          ? optionalSecret("emailOtpCdk")
+          : decrypted.emailOtpCdk,
         smsEndpoint: sensitiveRevealed
           ? optional("smsEndpoint")
           : decrypted.smsEndpoint,
+        smsEndpointCdk: sensitiveRevealed
+          ? optionalSecret("smsEndpointCdk")
+          : decrypted.smsEndpointCdk,
         notes: optional("notes"),
         totp: decrypted.totp,
       });
@@ -157,12 +172,18 @@ export function AccountDetails({
               <Field label="运营别名"><input name="displayName" required maxLength={120} defaultValue={account.displayName} className={inputClass} /></Field>
               <Field label="平台"><select name="platform" defaultValue={account.platform} className={inputClass}><option value="openai">OpenAI</option><option value="opencode_go">OpenCode Go</option><option value="antigravity">Antigravity</option></select></Field>
               <Field label="登录邮箱"><input name="loginEmail" type="email" maxLength={320} defaultValue={decrypted.loginEmail} className={inputClass} /></Field>
+              <SecretInput label="登录密码（可选）" name="password" defaultValue={decrypted.password} autoComplete="new-password" />
               <Field label="绑定手机号"><input name="phone" maxLength={80} defaultValue={decrypted.phone} className={inputClass} /></Field>
               <div className="sm:col-span-2">
                 {sensitiveRevealed ? (
-                  <Field label="接码地址"><input name="smsEndpoint" type="url" maxLength={2000} defaultValue={decrypted.smsEndpoint} className={inputClass} /></Field>
+                  <div className="grid gap-4 border-t border-[var(--border)] pt-5 sm:grid-cols-2">
+                    <Field label="邮箱接码地址（可选）"><input name="emailOtpEndpoint" type="url" maxLength={2000} defaultValue={decrypted.emailOtpEndpoint} className={inputClass} /></Field>
+                    <SecretInput label="邮箱接码地址登录 CDK（可选）" name="emailOtpCdk" defaultValue={decrypted.emailOtpCdk} />
+                    <Field label="手机号接码地址（可选）"><input name="smsEndpoint" type="url" maxLength={2000} defaultValue={decrypted.smsEndpoint} className={inputClass} /></Field>
+                    <SecretInput label="手机号接码 CDK（可选）" name="smsEndpointCdk" defaultValue={decrypted.smsEndpointCdk} />
+                  </div>
                 ) : (
-                  <div className="space-y-2"><p className="text-xs font-semibold text-[var(--muted)]">接码地址</p><button type="button" disabled={Boolean(busy)} onClick={() => void revealEndpoint()} className={secondaryButton}>{busy === "reveal-endpoint" ? <LoaderCircle className="animate-spin" aria-hidden="true" size={16} /> : <Eye aria-hidden="true" size={16} />}Passkey 验证并编辑</button></div>
+                  <div className="space-y-2"><p className="text-xs font-semibold text-[var(--muted)]">邮箱与手机号接码资料</p><button type="button" disabled={Boolean(busy)} onClick={() => void revealEndpoint()} className={secondaryButton}>{busy === "reveal-endpoint" ? <LoaderCircle className="animate-spin" aria-hidden="true" size={16} /> : <Eye aria-hidden="true" size={16} />}Passkey 验证并编辑</button></div>
                 )}
               </div>
               <div className="sm:col-span-2"><Field label="敏感备注"><textarea name="notes" rows={3} maxLength={20000} defaultValue={decrypted.notes} className={inputClass} /></Field></div>

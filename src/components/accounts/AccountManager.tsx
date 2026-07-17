@@ -39,6 +39,7 @@ import type { VaultCryptoClient } from "@/crypto";
 import { currentEpochMilliseconds } from "@/lib/clock";
 import { AccountDetails } from "./AccountDetails";
 import { QrCredentialInput } from "./QrCredentialInput";
+import { SecretInput } from "./SecretInput";
 
 type AccountList = {
   items: ManagedAccount[];
@@ -102,6 +103,7 @@ export function AccountManager({
   const [clockSkewSeconds, setClockSkewSeconds] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [otpById, setOtpById] = useState<Record<string, OtpView>>({});
+  const [revealedPasswords, setRevealedPasswords] = useState<Record<string, boolean>>({});
   const [now, setNow] = useState(0);
 
   const load = useCallback(async () => {
@@ -144,6 +146,7 @@ export function AccountManager({
         }),
       );
       setItems(decrypted);
+      setRevealedPasswords({});
       setTotal(result.total);
       setPages(result.pages);
     } catch (caught) {
@@ -319,6 +322,15 @@ export function AccountManager({
     await navigator.clipboard.writeText(current.code);
   }
 
+  async function copyPassword(account: AccountView) {
+    if (!account.decrypted?.password) return;
+    try {
+      await navigator.clipboard.writeText(account.decrypted.password);
+    } catch {
+      setError("密码复制失败，请检查浏览器剪贴板权限");
+    }
+  }
+
   return (
     <section className="mb-10">
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -371,7 +383,7 @@ export function AccountManager({
         </p>
       ) : null}
       <div className="mt-4 overflow-hidden border border-[var(--border)] bg-white">
-        <div className="hidden min-h-11 grid-cols-[minmax(180px,1.2fr)_150px_minmax(220px,1fr)_230px_44px] items-center border-b border-[var(--border)] bg-[var(--surface-subtle)] px-4 text-xs font-semibold text-[var(--muted)] md:grid">
+        <div className="hidden min-h-11 grid-cols-[minmax(180px,1.1fr)_140px_minmax(260px,1.2fr)_220px_44px] items-center border-b border-[var(--border)] bg-[var(--surface-subtle)] px-4 text-xs font-semibold text-[var(--muted)] md:grid">
           <span>账号</span><span>平台</span><span>登录资料</span><span>2FA</span><span className="sr-only">操作</span>
         </div>
         {loading ? (
@@ -381,10 +393,22 @@ export function AccountManager({
             const otp = otpById[account.id];
             const remaining = otp ? Math.max(0, Math.ceil((otp.expiresAt - now) / 1_000)) : 0;
             return (
-              <div key={account.id} className="grid gap-3 border-b border-[var(--border)] px-4 py-4 last:border-b-0 md:grid-cols-[minmax(180px,1.2fr)_150px_minmax(220px,1fr)_230px_44px] md:items-center md:gap-0">
+              <div key={account.id} data-account-id={account.id} className="grid gap-3 border-b border-[var(--border)] px-4 py-4 last:border-b-0 md:grid-cols-[minmax(180px,1.1fr)_140px_minmax(260px,1.2fr)_220px_44px] md:items-center md:gap-0">
                 <div className="min-w-0"><p className="truncate font-semibold">{account.displayName}</p><p className="mt-1 text-xs text-[var(--muted)]">更新于 {formatDate(account.updatedAt)}</p></div>
                 <div><span className="text-xs text-[var(--muted)] md:hidden">平台 </span><span>{platformLabels[account.platform]}</span></div>
-                <div className="min-w-0 text-sm"><span className="text-xs text-[var(--muted)] md:hidden">登录资料 </span>{account.decrypted ? <span className="break-all">{maskEmail(account.decrypted.loginEmail) || "未填写邮箱"}</span> : <span className="text-[var(--danger)]">密文无法解密</span>}</div>
+                <div className="min-w-0 space-y-2 text-sm">
+                  <div><span className="text-xs text-[var(--muted)] md:hidden">登录邮箱 </span>{account.decrypted ? <span className="break-all">{maskEmail(account.decrypted.loginEmail) || "未填写邮箱"}</span> : <span className="text-[var(--danger)]">密文无法解密</span>}</div>
+                  {account.decrypted ? (
+                    account.decrypted.password ? (
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="shrink-0 text-xs text-[var(--muted)]">密码</span>
+                        <code className="min-w-0 flex-1 break-all text-xs">{revealedPasswords[account.id] ? account.decrypted.password : "********"}</code>
+                        <IconButton label={revealedPasswords[account.id] ? "隐藏密码" : "显示密码"} onClick={() => setRevealedPasswords((current) => ({ ...current, [account.id]: !current[account.id] }))} icon={revealedPasswords[account.id] ? EyeOff : Eye} />
+                        <IconButton label="复制密码" onClick={() => void copyPassword(account)} icon={Copy} />
+                      </div>
+                    ) : <p className="text-xs text-[var(--muted)]">未填写密码</p>
+                  ) : null}
+                </div>
                 <div className="flex min-h-9 flex-wrap items-center gap-2">
                   {account.hasTotp ? (
                     otp && remaining > 0 ? (
@@ -490,8 +514,12 @@ function AccountDialog({
             <Field label="运营别名"><input name="displayName" required maxLength={120} className={inputClass} /></Field>
             <Field label="平台"><select name="platform" className={inputClass} defaultValue="openai"><option value="openai">OpenAI</option><option value="opencode_go">OpenCode Go</option><option value="antigravity">Antigravity</option></select></Field>
             <Field label="登录邮箱"><input name="loginEmail" type="email" autoComplete="off" maxLength={320} className={inputClass} /></Field>
+            <SecretInput label="登录密码（可选）" name="password" autoComplete="new-password" />
             <Field label="绑定手机号"><input name="phone" autoComplete="off" maxLength={80} className={inputClass} /></Field>
-            <div className="sm:col-span-2"><Field label="接码地址"><input name="smsEndpoint" type="url" autoComplete="off" maxLength={2000} className={inputClass} /></Field></div>
+            <Field label="邮箱接码地址（可选）"><input name="emailOtpEndpoint" type="url" autoComplete="off" maxLength={2000} className={inputClass} /></Field>
+            <SecretInput label="邮箱接码地址登录 CDK（可选）" name="emailOtpCdk" />
+            <Field label="手机号接码地址（可选）"><input name="smsEndpoint" type="url" autoComplete="off" maxLength={2000} className={inputClass} /></Field>
+            <SecretInput label="手机号接码 CDK（可选）" name="smsEndpointCdk" />
             <div className="sm:col-span-2"><Field label="敏感备注"><textarea name="notes" rows={3} maxLength={20000} className={inputClass} /></Field></div>
           </div>
           <fieldset className="mt-7 border-t border-[var(--border)] pt-5">
@@ -532,11 +560,19 @@ async function privatePayloadFromForm(
     const value = String(values.get(name) ?? "").normalize("NFKC").trim();
     return value || undefined;
   };
+  const optionalSecret = (name: string) => {
+    const value = String(values.get(name) ?? "");
+    return value.length ? value : undefined;
+  };
   return managedAccountPrivatePayloadSchema.parse({
     version: 1,
     loginEmail: optional("loginEmail")?.toLowerCase(),
+    password: optionalSecret("password"),
     phone: optional("phone"),
+    emailOtpEndpoint: optional("emailOtpEndpoint"),
+    emailOtpCdk: optionalSecret("emailOtpCdk"),
     smsEndpoint: optional("smsEndpoint"),
+    smsEndpointCdk: optionalSecret("smsEndpointCdk"),
     notes: optional("notes"),
     totp: await totpFromForm(values, client),
   });

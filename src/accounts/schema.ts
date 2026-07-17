@@ -28,8 +28,12 @@ export const managedAccountPrivatePayloadSchema = z
   .object({
     version: z.literal(1),
     loginEmail: z.string().trim().email().max(320).optional(),
+    password: z.string().min(1).max(2_000).optional(),
     phone: z.string().trim().max(80).optional(),
+    emailOtpEndpoint: z.string().trim().url().max(2_000).optional(),
+    emailOtpCdk: z.string().min(1).max(2_000).optional(),
     smsEndpoint: z.string().trim().url().max(2_000).optional(),
+    smsEndpointCdk: z.string().min(1).max(2_000).optional(),
     notes: z.string().max(20_000).optional(),
     totp: totpConfigurationSchema.optional(),
   })
