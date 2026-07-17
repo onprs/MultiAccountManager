@@ -25,6 +25,7 @@ Baseline: first vertical iteration from `Plan_20260716_224122.md`.
 - CSP WebAssembly allowance without JavaScript `unsafe-eval`, plus desktop/mobile browser Worker tests for Argon2id, AEAD tamper/AAD rejection, and RFC 6238 vectors.
 - Managed account and recovery-code schema migration plus owner-scoped account list/create/get/update/soft-delete APIs with revision locking and audit metadata.
 - Encrypted account workspace with server pagination, URL-restorable non-sensitive filters, exact email blind-index search, current-page decryption, responsive rows, details, edit, archive, and delete.
+- Browser-encrypted login passwords plus separate optional email/phone code endpoints and CDKs, with backward-compatible payload v1, Passkey-gated endpoint editing, and masked/reveal/copy password controls in the account list.
 - Browser-only `otpauth://totp`/Base32/image validation and preview, TOTP replace/remove, encrypted storage, RFC 6238 generation, masked reveal/copy, and server clock-skew warning.
 - Client-only 2FAuth schema-1 JSON import with platform allowlisting, duplicate/malformed reporting, and no icon/base64 upload.
 - Recovery-code batch normalization, exact blind-index deduplication, per-code encryption, metadata-only lists, Passkey-gated transactional reveal, copy, used/restored state, and deletion UI.
@@ -38,7 +39,7 @@ Baseline: first vertical iteration from `Plan_20260716_224122.md`.
 - PostgreSQL 16.14 acceptance of migrations `0000` through `0005`, encrypted database boundaries, pg-boss tables/queues/schedules, heartbeat refresh, minute jobs, and graceful Worker stop.
 - Built Worker runtime smoke starts `dist/worker/index.mjs`, verifies the child-PID heartbeat, and requires a clean SIGTERM/stopped heartbeat on Linux CI.
 - SHA256-verified Node 22.22.2 acceptance of the release guard, bundled Worker, and supervisor-managed standalone Web + Worker startup with live/ready health.
-- Production 1Panel v2.2.3 Linux runtime acceptance on `onprs` with release `c75e90c670d2`: relative atomic release activation, Node 22.22.2/ABI 127, supervisor PID 1, Web/Worker UID split, loopback-only proxy port, read-only secret mount, PostgreSQL network reachability, manifest verification, and graceful Compose restart.
+- Production 1Panel v2.2.3 Linux runtime acceptance on `onprs`, currently release `f32fb2ba16f2`: relative atomic release activation, Node 22.22.2/ABI 127, supervisor PID 1, Web/Worker UID split, loopback-only proxy port, read-only secret mount, PostgreSQL network reachability, manifest verification, and graceful Compose restart.
 - Production bootstrap at `https://account.api.onprs.top` with a valid HTTPS/WebAuthn identity, owner Passkey, Recovery Kit confirmation, six checksum migrations, schema version 6, pg-boss queues/schedules, fresh Worker heartbeat, closed Setup writes, and `live=200`/`ready=200`.
 - Post-initialization PostgreSQL/config backup with SHA256 verification and a disposable-database restore drill that recovered schema version 6, all migrations, the owner, Passkey, and Vault before dropping the temporary database.
 
