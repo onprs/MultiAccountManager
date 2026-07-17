@@ -1,0 +1,9 @@
+.git
+.github
+.next
+.runtime
+coverage
+dist
+node_modules
+release-manifest.json
+*.log

@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:18.4-alpine
+    environment:
+      POSTGRES_DB: account_vault
+      POSTGRES_USER: account_vault
+      POSTGRES_PASSWORD: local-development-only
+    ports:
+      - "127.0.0.1:55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U account_vault -d account_vault"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - account-vault-postgres:/var/lib/postgresql/data
+
+volumes:
+  account-vault-postgres:
