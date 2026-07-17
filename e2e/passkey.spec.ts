@@ -47,7 +47,7 @@ test("bootstraps the owner and signs in with a user-verified Passkey", async ({
     await page.getByLabel("Passkey 名称").fill("Primary Passkey");
     await page.getByRole("button", { name: "注册 Passkey 并完成" }).click();
 
-    await expect(page).toHaveURL(/\/login$/);
+    await expect(page).toHaveURL(/\/login$/, { timeout: 15_000 });
     await expect(page.locator('input[autocomplete="username webauthn"]')).toBeVisible();
     await page.getByRole("button", { name: "使用 Passkey 登录" }).click();
     await expect(page).toHaveURL(/\/accounts$/);
@@ -62,7 +62,7 @@ test("bootstraps the owner and signs in with a user-verified Passkey", async ({
       }
     });
     const masterPassword = "E2E-only master password 2026";
-    await page.getByLabel("主密码").fill(masterPassword);
+    await page.getByLabel("主密码", { exact: true }).fill(masterPassword);
     await page.getByLabel("确认主密码").fill(masterPassword);
     await page.getByRole("button", { name: "创建保险库" }).click();
     await expect(

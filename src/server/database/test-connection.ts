@@ -78,9 +78,11 @@ export async function testDatabaseConnection(
       Array<{ exists: boolean; can_use: boolean; can_create: boolean }>
     >`
       select
-        exists(select 1 from pg_namespace where nspname = ${config.schema}) as exists,
-        coalesce(has_schema_privilege(current_user, ${config.schema}, 'USAGE'), false) as can_use,
-        coalesce(has_schema_privilege(current_user, ${config.schema}, 'CREATE'), false) as can_create
+        n.oid is not null as exists,
+        coalesce(has_schema_privilege(current_user, n.oid, 'USAGE'), false) as can_use,
+        coalesce(has_schema_privilege(current_user, n.oid, 'CREATE'), false) as can_create
+      from (values (true)) as seed(present)
+      left join pg_namespace n on n.nspname = ${config.schema}
     `;
 
     let schemaStatus: DatabaseTestResult["schemaStatus"] = "missing";
