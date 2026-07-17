@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { KeyRound, LockKeyhole } from "lucide-react";
+import { CloudCog, KeyRound, LockKeyhole } from "lucide-react";
 import { getAuth } from "@/server/auth";
 import { getVault } from "@/server/vault/service";
 import { SignOutButton } from "@/components/auth/SignOutButton";
@@ -39,6 +39,10 @@ export default async function AccountsPage({
           </div>
           <div className="flex items-center gap-2">
             <span className="mr-1 hidden text-sm text-[var(--muted)] sm:inline">{session.user.name}</span>
+            <Link href="/connections" title="Sub2API 连接" className="grid size-9 place-items-center rounded-[6px] border border-[var(--border)] bg-white text-[var(--muted)] hover:text-[var(--foreground)]">
+              <CloudCog aria-hidden="true" size={16} />
+              <span className="sr-only">Sub2API 连接</span>
+            </Link>
             <Link href="/settings/security" title="登录安全" className="grid size-9 place-items-center rounded-[6px] border border-[var(--border)] bg-white text-[var(--muted)] hover:text-[var(--foreground)]">
               <KeyRound aria-hidden="true" size={16} />
               <span className="sr-only">登录安全</span>

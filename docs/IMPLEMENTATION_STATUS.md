@@ -27,7 +27,13 @@ Baseline: first vertical iteration from `Plan_20260716_224122.md`.
 - Encrypted account workspace with server pagination, URL-restorable non-sensitive filters, exact email blind-index search, current-page decryption, responsive rows, details, edit, archive, and delete.
 - Browser-only `otpauth://totp`/Base32/image validation and preview, TOTP replace/remove, encrypted storage, RFC 6238 generation, masked reveal/copy, and server clock-skew warning.
 - Client-only 2FAuth schema-1 JSON import with platform allowlisting, duplicate/malformed reporting, and no icon/base64 upload.
-- Recovery-code batch normalization, exact blind-index deduplication, per-code encryption, metadata-only lists, Passkey-gated transactional reveal, copy, and used/restored state.
+- Recovery-code batch normalization, exact blind-index deduplication, per-code encryption, metadata-only lists, Passkey-gated transactional reveal, copy, used/restored state, and deletion UI.
+- Separate service encryption key ring with owner/connection-bound XChaCha token envelopes, Passkey-gated token creation/replacement and service-key rotation with previous-key migration.
+- Sub2API connection validation for HTTPS, scoped authentication, observer schema, stable instance ID, redirect refusal, response size, item isolation, and remote clock skew.
+- Remote account catalog, manual platform-safe links, account-detail integration status, stored quota windows, and connection diagnostics.
+- Independent `pg-boss` Worker with unique per-connection jobs, cron scheduling, jitter, bounded pagination, transient backoff, graceful shutdown, PostgreSQL heartbeat, and manual enqueue.
+- Normalized account/sync health, two-run missing detection, deduplicated state events, two-observation alert debounce, in-app acknowledge, automatic resolve, and retention cleanup.
+- Observer secret-leak fixtures reject `credentials`/raw `extra`; service-token AAD and previous-key decryption have unit coverage.
 - CI-only isolated PostgreSQL 16 + Playwright virtual authenticator coverage for setup, all migrations, owner registration/login, Vault/Recovery Kit, encrypted account creation, TOTP, READY closure, and final-Passkey protection.
 
 ## Next slice
@@ -35,7 +41,9 @@ Baseline: first vertical iteration from `Plan_20260716_224122.md`.
 - Configure a Git remote and obtain a real GitHub Actions result for the PostgreSQL 16 + virtual-authenticator flow.
 - Run PostgreSQL-backed account/recovery-code APIs and the expanded virtual-authenticator E2E in GitHub Actions after a remote is configured.
 - Add generated QR fixtures for automated ZXing image coverage beyond manual browser verification.
-- Add recovery-code deletion UI and optional batch labels; the DELETE API and encrypted label field already exist.
+- Add optional encrypted recovery-code batch labels; the database and API field already exist.
+- Validate `0005_sub2api_sync.sql`, pg-boss installation, retry behavior, and Observer pagination against PostgreSQL 16 in CI.
+- Select an external notification channel before implementing optional email/webhook delivery; in-app alerts are complete.
 - Exercise production WebAuthn with the final HTTPS origin and RP ID.
 
 ## Deployment blockers

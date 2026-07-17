@@ -175,7 +175,7 @@ async function main() {
     targetNodeVersion: "22.22.2",
     buildNodeVersion: process.versions.node,
     nodeAbi: process.versions.modules,
-    schemaVersion: 5,
+    schemaVersion: 6,
     configVersion: 1,
     cryptoVersion: 1,
     files: hashes,

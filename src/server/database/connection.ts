@@ -1,7 +1,7 @@
 import postgres, { type Sql } from "postgres";
 import type { DatabaseConfig } from "@/runtime/types";
 
-function sslOptions(config: DatabaseConfig): false | "prefer" | "require" | Record<string, unknown> {
+export function databaseSslOptions(config: DatabaseConfig): false | "prefer" | "require" | Record<string, unknown> {
   switch (config.sslMode) {
     case "disable":
       return false;
@@ -27,7 +27,7 @@ export function createDatabaseClient(
     database: config.database,
     username: config.username,
     password: config.password,
-    ssl: sslOptions(config),
+    ssl: databaseSslOptions(config),
     connect_timeout: config.connectTimeoutSeconds,
     idle_timeout: 20,
     max_lifetime: 60 * 30,
