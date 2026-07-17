@@ -39,6 +39,8 @@ Baseline: first vertical iteration from `Plan_20260716_224122.md`.
 - Built Worker runtime smoke starts `dist/worker/index.mjs`, verifies the child-PID heartbeat, and requires a clean SIGTERM/stopped heartbeat on Linux CI.
 - SHA256-verified Node 22.22.2 acceptance of the release guard, bundled Worker, and supervisor-managed standalone Web + Worker startup with live/ready health.
 - Production 1Panel v2.2.3 Linux runtime acceptance on `onprs` with release `c75e90c670d2`: relative atomic release activation, Node 22.22.2/ABI 127, supervisor PID 1, Web/Worker UID split, loopback-only proxy port, read-only secret mount, PostgreSQL network reachability, manifest verification, and graceful Compose restart.
+- Production bootstrap at `https://account.api.onprs.top` with a valid HTTPS/WebAuthn identity, owner Passkey, Recovery Kit confirmation, six checksum migrations, schema version 6, pg-boss queues/schedules, fresh Worker heartbeat, closed Setup writes, and `live=200`/`ready=200`.
+- Post-initialization PostgreSQL/config backup with SHA256 verification and a disposable-database restore drill that recovered schema version 6, all migrations, the owner, Passkey, and Vault before dropping the temporary database.
 
 ## Next slice
 
@@ -47,13 +49,11 @@ Baseline: first vertical iteration from `Plan_20260716_224122.md`.
 - Add optional encrypted recovery-code batch labels; the database and API field already exist.
 - Validate Observer pagination/retry behavior against a live Sub2API instance using a disposable scoped token.
 - Select an external notification channel before implementing optional email/webhook delivery; in-app alerts are complete.
-- Exercise production WebAuthn with the final HTTPS origin and RP ID.
 
 ## Deployment blockers
 
-- The final HTTPS hostname and WebAuthn RP ID are not yet fixed; production Passkey registration must wait for them.
-- The `onprs` 1Panel v2.2.3 Node 22.22.2 runtime is running release `c75e90c670d2` in the expected unconfigured state (`live=200`, `ready=503`).
-- The existing 1Panel PostgreSQL 18.4 service is network-reachable from the runtime, but the dedicated database/user, TLS policy, connection budget, migration snapshot, backup, and restore exercise are not complete.
 - The production Sub2API Observer migration/release and disposable scoped-token integration test are not complete.
+- PostgreSQL application traffic uses the private `1panel-network` with SSL disabled, but the PostgreSQL host port is still publicly bound; restrict that exposure without breaking internal container connectivity.
+- The verified server and local backups are not a substitute for recurring encrypted offsite backups; the Config Master Key and Recovery Kit still require owner-controlled offline copies.
 - A Git remote and real GitHub Actions evidence are still unavailable; local PostgreSQL 16, Passkey, Worker, and production runtime acceptance remain the current evidence.
 - Multi-user scope, account scale, notification channels, and production PostgreSQL connection budget still need owner confirmation.
