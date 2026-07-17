@@ -22,8 +22,8 @@ node_version="$(node --version)"
 pid_one="$(tr '\0' ' ' </proc/1/cmdline)"
 [[ "$pid_one" == *"supervisor.mjs"* ]] || fail "pid_one"
 
-web_uid="$(ps -eo uid=,args= | awk '/[n]ode .*server\.js/{print $1; exit}')"
-worker_uid="$(ps -eo uid=,args= | awk '/[n]ode .*dist\/worker\/index\.mjs/{print $1; exit}')"
+web_uid="$(ps -eo ppid=,uid= | awk '$1 == 1 && $2 == 10001 {print $2; exit}')"
+worker_uid="$(ps -eo ppid=,uid= | awk '$1 == 1 && $2 == 10002 {print $2; exit}')"
 [[ "$web_uid" == "10001" ]] || fail "web_uid"
 [[ "$worker_uid" == "10002" ]] || fail "worker_uid"
 

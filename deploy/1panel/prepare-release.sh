@@ -25,4 +25,4 @@ find "$target" -type f -exec chmod 0644 {} +
 chmod 0555 "$target/dist/runtime/supervisor.mjs" "$target/dist/worker/index.mjs" "$target/.next/standalone/server.js"
 
 printf 'release_prepared=true target=%s\n' "$target"
-printf 'next_step=ln -sfn %s %s/app/current.new && mv -Tf %s/app/current.new %s/app/current\n' "$target" "$install_root" "$install_root" "$install_root"
+printf 'next_step=cd %s/app && ln -sfn releases/%s current.new && mv -Tf current.new current\n' "$install_root" "$release_id"
