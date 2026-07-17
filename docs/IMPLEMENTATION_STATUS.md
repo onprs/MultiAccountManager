@@ -38,6 +38,7 @@ Baseline: first vertical iteration from `Plan_20260716_224122.md`.
 - PostgreSQL 16.14 acceptance of migrations `0000` through `0005`, encrypted database boundaries, pg-boss tables/queues/schedules, heartbeat refresh, minute jobs, and graceful Worker stop.
 - Built Worker runtime smoke starts `dist/worker/index.mjs`, verifies the child-PID heartbeat, and requires a clean SIGTERM/stopped heartbeat on Linux CI.
 - SHA256-verified Node 22.22.2 acceptance of the release guard, bundled Worker, and supervisor-managed standalone Web + Worker startup with live/ready health.
+- Production 1Panel v2.2.3 Linux runtime acceptance on `onprs` with release `c75e90c670d2`: relative atomic release activation, Node 22.22.2/ABI 127, supervisor PID 1, Web/Worker UID split, loopback-only proxy port, read-only secret mount, PostgreSQL network reachability, manifest verification, and graceful Compose restart.
 
 ## Next slice
 
@@ -50,8 +51,9 @@ Baseline: first vertical iteration from `Plan_20260716_224122.md`.
 
 ## Deployment blockers
 
-- `onprs` now passes the 1Panel version gate at v2.2.3.
-- The final HTTPS hostname and WebAuthn RP ID are not yet fixed.
-- Node 22.22.2 passes portable Windows release/supervisor acceptance, but the production Linux runtime has not been created or validated on 1Panel.
-- PostgreSQL 16.14 is available through Debian WSL for disposable acceptance. Docker Desktop remains unavailable because the custom kernel configured in `C:\Users\liang\.wslconfig` lacks `iso9660`, which Docker's WSL bootstrap requires.
+- The final HTTPS hostname and WebAuthn RP ID are not yet fixed; production Passkey registration must wait for them.
+- The `onprs` 1Panel v2.2.3 Node 22.22.2 runtime is running release `c75e90c670d2` in the expected unconfigured state (`live=200`, `ready=503`).
+- The existing 1Panel PostgreSQL 18.4 service is network-reachable from the runtime, but the dedicated database/user, TLS policy, connection budget, migration snapshot, backup, and restore exercise are not complete.
+- The production Sub2API Observer migration/release and disposable scoped-token integration test are not complete.
+- A Git remote and real GitHub Actions evidence are still unavailable; local PostgreSQL 16, Passkey, Worker, and production runtime acceptance remain the current evidence.
 - Multi-user scope, account scale, notification channels, and production PostgreSQL connection budget still need owner confirmation.
