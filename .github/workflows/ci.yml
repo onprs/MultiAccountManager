@@ -57,4 +57,10 @@ jobs:
           SETUP_TOKEN_FILE: ${{ github.workspace }}/.runtime-passkey/account-vault-setup-token
           CONFIG_MASTER_KEY_FILE: ${{ github.workspace }}/.runtime-passkey/account-vault-config-key
       - run: pnpm build
+      - name: Built Worker runtime and graceful shutdown smoke
+        run: pnpm test:worker-runtime
+        env:
+          RUNTIME_CONFIG_DIR: ${{ github.workspace }}/.runtime-passkey
+          SETUP_TOKEN_FILE: ${{ github.workspace }}/.runtime-passkey/account-vault-setup-token
+          CONFIG_MASTER_KEY_FILE: ${{ github.workspace }}/.runtime-passkey/account-vault-config-key
       - run: pnpm audit --audit-level high --registry=https://registry.npmjs.org
