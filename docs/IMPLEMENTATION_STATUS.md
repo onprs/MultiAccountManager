@@ -34,15 +34,17 @@ Baseline: first vertical iteration from `Plan_20260716_224122.md`.
 - Independent `pg-boss` Worker with unique per-connection jobs, cron scheduling, jitter, bounded pagination, transient backoff, graceful shutdown, PostgreSQL heartbeat, and manual enqueue.
 - Normalized account/sync health, two-run missing detection, deduplicated state events, two-observation alert debounce, in-app acknowledge, automatic resolve, and retention cleanup.
 - Observer secret-leak fixtures reject `credentials`/raw `extra`; service-token AAD and previous-key decryption have unit coverage.
-- CI-only isolated PostgreSQL 16 + Playwright virtual authenticator coverage for setup, all migrations, owner registration/login, Vault/Recovery Kit, encrypted account creation, TOTP, READY closure, and final-Passkey protection.
+- Isolated PostgreSQL 16 + Playwright virtual authenticator coverage for setup, all migrations, owner registration/login, Vault/Recovery Kit, encrypted account creation, TOTP, recovery codes, READY closure, and final-Passkey protection.
+- PostgreSQL 16.14 acceptance of migrations `0000` through `0005`, encrypted database boundaries, pg-boss tables/queues/schedules, heartbeat refresh, minute jobs, and graceful Worker stop.
+- Built Worker runtime smoke starts `dist/worker/index.mjs`, verifies the child-PID heartbeat, and requires a clean SIGTERM/stopped heartbeat on Linux CI.
+- SHA256-verified Node 22.22.2 acceptance of the release guard, bundled Worker, and supervisor-managed standalone Web + Worker startup with live/ready health.
 
 ## Next slice
 
-- Configure a Git remote and obtain a real GitHub Actions result for the PostgreSQL 16 + virtual-authenticator flow.
-- Run PostgreSQL-backed account/recovery-code APIs and the expanded virtual-authenticator E2E in GitHub Actions after a remote is configured.
+- Configure a Git remote and obtain a real GitHub Actions result for the PostgreSQL 16, virtual-authenticator, and built-Worker smoke flow.
 - Add generated QR fixtures for automated ZXing image coverage beyond manual browser verification.
 - Add optional encrypted recovery-code batch labels; the database and API field already exist.
-- Validate `0005_sub2api_sync.sql`, pg-boss installation, retry behavior, and Observer pagination against PostgreSQL 16 in CI.
+- Validate Observer pagination/retry behavior against a live Sub2API instance using a disposable scoped token.
 - Select an external notification channel before implementing optional email/webhook delivery; in-app alerts are complete.
 - Exercise production WebAuthn with the final HTTPS origin and RP ID.
 
@@ -50,6 +52,6 @@ Baseline: first vertical iteration from `Plan_20260716_224122.md`.
 
 - `onprs` now passes the 1Panel version gate at v2.2.3.
 - The final HTTPS hostname and WebAuthn RP ID are not yet fixed.
-- A Node 22.22.2 runtime has not been created or validated on 1Panel.
-- No local PostgreSQL CLI/server or Docker daemon is currently available for the disposable migration/adapter/account API test.
-- Multi-user scope, account scale, notification channels, and PostgreSQL connection budget still need owner confirmation.
+- Node 22.22.2 passes portable Windows release/supervisor acceptance, but the production Linux runtime has not been created or validated on 1Panel.
+- PostgreSQL 16.14 is available through Debian WSL for disposable acceptance. Docker Desktop remains unavailable because the custom kernel configured in `C:\Users\liang\.wslconfig` lacks `iso9660`, which Docker's WSL bootstrap requires.
+- Multi-user scope, account scale, notification channels, and production PostgreSQL connection budget still need owner confirmation.
