@@ -78,9 +78,28 @@ export type ApplicationConfig = z.infer<typeof applicationConfigSchema>;
 
 export const serviceKeySchema = z.object({
   id: z.string().min(1).max(64),
-  key: z.string().min(43).max(44),
+  key: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
   status: z.enum(["current", "previous"]),
 });
+
+export const serviceKeyRingSchema = z
+  .object({ keys: z.array(serviceKeySchema).min(1).max(2) })
+  .superRefine((value, context) => {
+    if (value.keys.filter((key) => key.status === "current").length !== 1) {
+      context.addIssue({
+        code: "custom",
+        path: ["keys"],
+        message: "Service key ring must contain exactly one current key",
+      });
+    }
+    if (new Set(value.keys.map((key) => key.id)).size !== value.keys.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["keys"],
+        message: "Service key IDs must be unique",
+      });
+    }
+  });
 
 export const runtimeConfigSchema = z.object({
   version: z.literal(1),
@@ -88,7 +107,7 @@ export const runtimeConfigSchema = z.object({
   database: databaseConfigSchema,
   application: applicationConfigSchema,
   auth: z.object({ secret: z.string().min(43).max(128) }),
-  serviceEncryption: z.object({ keys: z.array(serviceKeySchema).min(1).max(2) }),
+  serviceEncryption: serviceKeyRingSchema,
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });

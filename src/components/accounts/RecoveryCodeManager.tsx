@@ -7,6 +7,7 @@ import {
   Eye,
   LoaderCircle,
   RotateCcw,
+  Trash2,
   Upload,
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
@@ -153,6 +154,27 @@ export function RecoveryCodeManager({
     }
   }
 
+  async function removeCode(code: RecoveryCodeMetadata) {
+    if (!window.confirm("确认永久删除这条恢复码密文？")) return;
+    setBusy(code.id);
+    setError(null);
+    try {
+      await api(
+        `/api/v1/accounts/${encodeURIComponent(accountId)}/recovery-codes/${encodeURIComponent(code.id)}`,
+        {
+          method: "DELETE",
+          body: JSON.stringify({ expectedRevision: code.revision }),
+        },
+      );
+      setRevealed({});
+      await load();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "恢复码删除失败");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function setUsed(code: RecoveryCodeMetadata, used: boolean) {
     setBusy(code.id);
     setError(null);
@@ -214,6 +236,12 @@ export function RecoveryCodeManager({
                   spin={busy === code.id}
                   disabled={Boolean(busy)}
                   onClick={() => void setUsed(code, !code.usedAt)}
+                />
+                <IconButton
+                  label="删除恢复码"
+                  icon={Trash2}
+                  disabled={Boolean(busy)}
+                  onClick={() => void removeCode(code)}
                 />
               </div>
             </div>

@@ -59,4 +59,4 @@ After preparing and selecting a release, start the runtime and run inside it:
 bash /app/current/deploy/1panel/verify-runtime.sh
 ```
 
-Before setup, monitor `/api/health/live`; `/api/health/ready` intentionally returns 503 until owner creation is complete.
+Before setup, monitor `/api/health/live`; `/api/health/ready` intentionally returns 503 until owner creation is complete. Setup creates the configured application schema and a separate pg-boss job schema. After READY, confirm the `/connections` diagnostic shows a fresh `sync-worker` heartbeat; Sub2API connection failures do not make Web readiness fail.

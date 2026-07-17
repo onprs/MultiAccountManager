@@ -19,6 +19,7 @@ import {
 } from "@/accounts/schema";
 import type { VaultCryptoClient } from "@/crypto";
 import { authClient } from "@/lib/auth-client";
+import { AccountIntegrationStatus } from "@/components/integrations/AccountIntegrationStatus";
 import { RecoveryCodeManager } from "./RecoveryCodeManager";
 import { TotpEditor } from "./TotpEditor";
 
@@ -182,6 +183,8 @@ export function AccountDetails({
           />
 
           <RecoveryCodeManager ownerUserId={ownerUserId} accountId={account.id} client={client} />
+
+          <AccountIntegrationStatus managedAccountId={account.id} />
 
           <section aria-labelledby="delete-account-title" className="mt-6 border-t border-[var(--border)] pt-6">
             <h3 id="delete-account-title" className="font-semibold text-[var(--danger)]">删除账号</h3>

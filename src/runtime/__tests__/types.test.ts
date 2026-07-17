@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applicationConfigSchema,
   databaseConfigSchema,
+  serviceKeyRingSchema,
 } from "../types";
 
 describe("runtime input schemas", () => {
@@ -21,6 +22,21 @@ describe("runtime input schemas", () => {
         workerPoolSize: 5,
       }).success,
     ).toBe(false);
+  });
+
+  it("requires one canonical current service key and unique key IDs", () => {
+    const key = "A".repeat(43);
+    expect(serviceKeyRingSchema.safeParse({ keys: [{ id: "current", key, status: "current" }] }).success).toBe(true);
+    expect(serviceKeyRingSchema.safeParse({ keys: [{ id: "previous", key, status: "previous" }] }).success).toBe(false);
+    expect(serviceKeyRingSchema.safeParse({
+      keys: [
+        { id: "duplicate", key, status: "current" },
+        { id: "duplicate", key: "B".repeat(43), status: "previous" },
+      ],
+    }).success).toBe(false);
+    expect(serviceKeyRingSchema.safeParse({
+      keys: [{ id: "bad-key", key: "+".repeat(43), status: "current" }],
+    }).success).toBe(false);
   });
 
   it("requires HTTPS outside a loopback development origin", () => {
