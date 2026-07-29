@@ -6,19 +6,27 @@ import {
   type ManagedAccount,
 } from "@/accounts/schema";
 import type { EncryptedEnvelope } from "@/crypto/schema";
+import { serviceCiphertextSchema, type ServiceCiphertext } from "@/integrations/schema";
 import { readRuntimeConfig } from "@/runtime/config-store";
 import {
   closeDatabaseClient,
   createDatabaseClient,
 } from "@/server/database/connection";
+import { decryptServiceToken } from "@/server/integrations/service-cipher";
+import {
+  deleteObserverAccount,
+  Sub2apiClientError,
+} from "@/server/sub2api/client";
 
 export class ManagedAccountServiceError extends Error {
   readonly code: string;
+  readonly status: number;
 
-  constructor(code: string, message: string) {
+  constructor(code: string, message: string, status = 409) {
     super(message);
     this.name = "ManagedAccountServiceError";
     this.code = code;
+    this.status = status;
   }
 }
 
@@ -65,6 +73,7 @@ export async function listManagedAccounts(input: {
   platform?: AccountPlatform;
   localStatus?: AccountLocalStatus;
   hasTotp?: boolean;
+  includeDeleted?: boolean;
   emailBlindIndex?: string;
   emailDomainBlindIndex?: string;
 }): Promise<ManagedAccountList> {
@@ -74,6 +83,7 @@ export async function listManagedAccounts(input: {
   const platform = input.platform ?? null;
   const localStatus = input.localStatus ?? "active";
   const hasTotp = input.hasTotp ?? null;
+  const includeDeleted = input.includeDeleted ?? false;
   const emailBlindIndex = input.emailBlindIndex ?? null;
   const emailDomainBlindIndex = input.emailDomainBlindIndex ?? null;
   const offset = (input.page - 1) * input.pageSize;
@@ -95,7 +105,7 @@ export async function listManagedAccounts(input: {
           updated_at as "updatedAt"
         from managed_accounts
         where owner_user_id = ${input.ownerUserId}
-          and deleted_at is null
+          and (${includeDeleted}::boolean or deleted_at is null)
           and local_status = ${localStatus}
           and (${platform}::text is null or platform = ${platform})
           and (${hasTotp}::boolean is null or has_totp = ${hasTotp})
@@ -113,7 +123,7 @@ export async function listManagedAccounts(input: {
         select count(*)::int as total
         from managed_accounts
         where owner_user_id = ${input.ownerUserId}
-          and deleted_at is null
+          and (${includeDeleted}::boolean or deleted_at is null)
           and local_status = ${localStatus}
           and (${platform}::text is null or platform = ${platform})
           and (${hasTotp}::boolean is null or has_totp = ${hasTotp})
@@ -334,6 +344,75 @@ export async function deleteManagedAccount(input: {
   const sql = createDatabaseClient(config.database, { max: 1 });
   try {
     await sql.begin(async (transaction) => {
+      const [account] = await transaction<Array<{ id: string }>>`
+        select id
+        from managed_accounts
+        where id = ${input.id}
+          and owner_user_id = ${input.ownerUserId}
+          and revision = ${input.expectedRevision}
+          and deleted_at is null
+        limit 1
+        for update
+      `;
+      if (!account) {
+        throw new ManagedAccountServiceError(
+          "ACCOUNT_REVISION_CONFLICT",
+          "Account changed in another session or no longer exists",
+        );
+      }
+
+      const remoteAccounts = await transaction<Array<{
+        connectionId: string;
+        baseUrl: string;
+        externalAccountId: string;
+        tokenCiphertext: ServiceCiphertext;
+      }>>`
+        select
+          conn.id as "connectionId",
+          conn.base_url as "baseUrl",
+          link.external_account_id as "externalAccountId",
+          conn.token_ciphertext as "tokenCiphertext"
+        from sub2api_account_links link
+        join sub2api_connections conn
+          on conn.id = link.connection_id
+          and conn.owner_user_id = ${input.ownerUserId}
+        where link.managed_account_id = ${input.id}
+          and link.owner_user_id = ${input.ownerUserId}
+        order by conn.id, link.external_account_id
+      `;
+
+      const deletionTargets = [];
+      for (const remoteAccount of remoteAccounts) {
+        try {
+          deletionTargets.push({
+            baseUrl: remoteAccount.baseUrl,
+            token: await decryptServiceToken({
+              connectionId: remoteAccount.connectionId,
+              ownerUserId: input.ownerUserId,
+              envelope: serviceCiphertextSchema.parse(remoteAccount.tokenCiphertext),
+              config,
+            }),
+            accountId: remoteAccount.externalAccountId,
+          });
+        } catch {
+          throw new ManagedAccountServiceError(
+            "SUB2API_DELETE_CREDENTIAL_UNAVAILABLE",
+            "Sub2API deletion credential is unavailable",
+            503,
+          );
+        }
+      }
+
+      const remoteResults = await Promise.allSettled(
+        deletionTargets.map((target) => deleteObserverAccount(target)),
+      );
+      const remoteFailure = remoteResults.find(
+        (result): result is PromiseRejectedResult => result.status === "rejected",
+      );
+      if (remoteFailure) {
+        throw managedAccountRemoteDeleteError(remoteFailure.reason);
+      }
+
       const [deleted] = await transaction<Array<{ id: string }>>`
         update managed_accounts
         set deleted_at = now(),
@@ -352,6 +431,19 @@ export async function deleteManagedAccount(input: {
         );
       }
       await transaction`
+        delete from remote_account_catalog catalog
+        using sub2api_account_links link
+        where link.managed_account_id = ${input.id}
+          and link.owner_user_id = ${input.ownerUserId}
+          and catalog.connection_id = link.connection_id
+          and catalog.external_account_id = link.external_account_id
+      `;
+      await transaction`
+        delete from sub2api_account_links
+        where managed_account_id = ${input.id}
+          and owner_user_id = ${input.ownerUserId}
+      `;
+      await transaction`
         insert into audit_events (
           id, actor_user_id, event_type, outcome, request_id, metadata
         ) values (
@@ -360,11 +452,45 @@ export async function deleteManagedAccount(input: {
           'managed_account.deleted',
           'success',
           ${input.requestId ?? null},
-          ${transaction.json({ accountId: input.id })}
+          ${transaction.json({
+            accountId: input.id,
+            remoteAccountsDeleted: remoteAccounts.length,
+          })}
         )
       `;
     });
   } finally {
     await closeDatabaseClient(sql).catch(() => undefined);
   }
+}
+
+function managedAccountRemoteDeleteError(error: unknown): ManagedAccountServiceError {
+  if (!(error instanceof Sub2apiClientError)) {
+    return new ManagedAccountServiceError(
+      "SUB2API_DELETE_FAILED",
+      "Sub2API account deletion failed",
+      502,
+    );
+  }
+  if (error.code === "OBSERVER_DELETE_FORBIDDEN") {
+    return new ManagedAccountServiceError(
+      error.code,
+      "Sub2API integration token does not have account deletion permission",
+      424,
+    );
+  }
+  if (error.code === "OBSERVER_AUTH_REJECTED") {
+    return new ManagedAccountServiceError(
+      error.code,
+      "Sub2API rejected the integration token",
+      424,
+    );
+  }
+  return new ManagedAccountServiceError(
+    error.code,
+    error.retryable
+      ? "Sub2API account deletion is temporarily unavailable"
+      : "Sub2API account deletion failed",
+    error.retryable ? 503 : 424,
+  );
 }

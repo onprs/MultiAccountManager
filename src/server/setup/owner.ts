@@ -64,6 +64,35 @@ export async function createOrLoadOwner(input: {
             "Owner setup was already started with a different email",
           );
         }
+        const migrationId = config.domainMigration?.id ?? null;
+        const [state] = await transaction<Array<{
+          vaultReady: boolean;
+          migrationPrepared: boolean;
+        }>>`
+          select
+            exists (
+              select 1 from vaults
+              where owner_user_id = ${existing[0].id}
+                and recovery_confirmed_at is not null
+            ) as "vaultReady",
+            exists (
+              select 1 from audit_events
+              where event_type = 'application.domain_migration.started'
+                and metadata ->> 'migrationId' = ${migrationId}
+            ) as "migrationPrepared"
+        `;
+        if (state?.vaultReady && !config.domainMigration) {
+          throw new OwnerSetupError(
+            "OWNER_STATE_CONFLICT",
+            "An initialized Vault cannot repeat owner setup",
+          );
+        }
+        if (state?.vaultReady && !state.migrationPrepared) {
+          throw new OwnerSetupError(
+            "DOMAIN_MIGRATION_NOT_PREPARED",
+            "Domain migration preparation must finish before Passkey registration",
+          );
+        }
         return existing[0];
       }
 
@@ -113,53 +142,130 @@ export async function resolveRegistrationOwner(userId: string): Promise<SetupOwn
   });
 }
 
-export async function completeOwnerSetup(requestId?: string): Promise<SetupOwner> {
+export async function completeOwnerSetup(requestId?: string): Promise<{
+  owner: SetupOwner;
+  setupState: "creating_vault" | "ready";
+}> {
   const config = await readRuntimeConfig();
   if (config.setupState !== "creating_owner") {
     throw new OwnerSetupError("OWNER_SETUP_CLOSED", "Owner setup is not available");
   }
 
-  const owner = await withDatabase(async (sql) => {
+  const migrationId = config.domainMigration?.id ?? null;
+  const result = await withDatabase(async (sql) => {
     return sql.begin(async (transaction) => {
       await transaction`select pg_advisory_xact_lock(hashtextextended('account-vault-owner-v1', 0))`;
-      const [result] = await transaction<
-        Array<SetupOwner & { passkeyCount: number }>
+      const [owner] = await transaction<
+        Array<
+          SetupOwner & {
+            passkeyCount: number;
+            vaultReady: boolean;
+            migrationPrepared: boolean;
+            migrationCompleted: boolean;
+          }
+        >
       >`
         select
           users.id,
           users.name,
           users.email,
           users.role,
-          count(passkeys.id)::int as "passkeyCount"
+          count(passkeys.id)::int as "passkeyCount",
+          exists (
+            select 1 from vaults
+            where vaults.owner_user_id = users.id
+              and vaults.recovery_confirmed_at is not null
+          ) as "vaultReady",
+          exists (
+            select 1 from audit_events started
+            where started.event_type = 'application.domain_migration.started'
+              and started.metadata ->> 'migrationId' = ${migrationId}
+          ) as "migrationPrepared",
+          exists (
+            select 1 from audit_events completed
+            where completed.event_type = 'application.domain_migration.completed'
+              and completed.metadata ->> 'migrationId' = ${migrationId}
+          ) as "migrationCompleted"
         from users
         left join passkeys on passkeys.user_id = users.id
         where users.role = 'owner'
         group by users.id
         limit 1
       `;
-      if (!result || result.passkeyCount < 1) {
+      if (!owner || owner.passkeyCount < 1) {
         throw new OwnerSetupError(
           "PASSKEY_REQUIRED",
           "At least one owner Passkey must be registered",
         );
       }
-      await transaction`
-        insert into audit_events (id, actor_user_id, event_type, outcome, request_id)
-        values (${randomUUID()}, ${result.id}, 'setup.completed', 'success', ${requestId ?? null})
-      `;
+
+      let setupState: "ready" | "creating_vault";
+      if (owner.vaultReady) {
+        if (!config.domainMigration) {
+          throw new OwnerSetupError(
+            "OWNER_STATE_CONFLICT",
+            "An initialized Vault cannot repeat owner setup",
+          );
+        }
+        if (!owner.migrationPrepared) {
+          throw new OwnerSetupError(
+            "DOMAIN_MIGRATION_NOT_PREPARED",
+            "Domain migration preparation must finish before owner setup",
+          );
+        }
+        setupState = "ready";
+        if (!owner.migrationCompleted) {
+          await transaction`
+            insert into audit_events (
+              id, actor_user_id, event_type, outcome, request_id, metadata
+            ) values (
+              ${randomUUID()},
+              ${owner.id},
+              'application.domain_migration.completed',
+              'success',
+              ${requestId ?? null},
+              ${transaction.json({ migrationId })}
+            )
+          `;
+        }
+      } else {
+        if (config.domainMigration) {
+          throw new OwnerSetupError(
+            "OWNER_STATE_CONFLICT",
+            "Domain migration requires an initialized Vault",
+          );
+        }
+        setupState = "creating_vault";
+        await transaction`
+          insert into audit_events (id, actor_user_id, event_type, outcome, request_id)
+          values (
+            ${randomUUID()},
+            ${owner.id},
+            'setup.completed',
+            'success',
+            ${requestId ?? null}
+          )
+        `;
+      }
+
       return {
-        id: result.id,
-        name: result.name,
-        email: result.email,
-        role: result.role,
+        owner: {
+          id: owner.id,
+          name: owner.name,
+          email: owner.email,
+          role: owner.role,
+        },
+        setupState,
       };
     });
   });
 
-  await writeRuntimeConfig({
+  const nextConfig = {
     ...config,
-    setupState: "creating_vault",
+    setupState: result.setupState,
     updatedAt: new Date().toISOString(),
-  });
-  return owner;
+  };
+  if (result.setupState === "ready") delete nextConfig.domainMigration;
+  await writeRuntimeConfig(nextConfig);
+  return result;
 }

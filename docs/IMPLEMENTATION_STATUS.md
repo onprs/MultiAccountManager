@@ -10,6 +10,7 @@ Baseline: first vertical iteration from `Plan_20260716_224122.md`.
 - Setup Token session with same-origin checks, constant-time comparison, expiry, single active session, and basic attempt limiting.
 - Structured PostgreSQL connection validation for version, read-only state, schema conflicts, privileges, TLS mode, and pool budget.
 - Transactional checksum migrations protected by a PostgreSQL advisory lock.
+- Backup-confirmed domain identity migration with a persistent migration ID, session/old-Passkey revocation, interruption-safe retries, and idempotent owner Passkey re-enrollment completion.
 - XChaCha20-Poly1305 `runtime.enc` storage using a Config Master Key file, atomic replacement, and authenticated config schema.
 - Setup UI through database migration and the unique owner bootstrap.
 - Better Auth with reviewed Drizzle/PostgreSQL schema and Passkey-only route allowlists.
@@ -24,14 +25,16 @@ Baseline: first vertical iteration from `Plan_20260716_224122.md`.
 - Strict owner-scoped Vault APIs with revision locking; API schemas never accept a master password, KEK, Vault Root Key, or decrypted payload.
 - CSP WebAssembly allowance without JavaScript `unsafe-eval`, plus desktop/mobile browser Worker tests for Argon2id, AEAD tamper/AAD rejection, and RFC 6238 vectors.
 - Managed account and recovery-code schema migration plus owner-scoped account list/create/get/update/soft-delete APIs with revision locking and audit metadata.
-- Encrypted account workspace with server pagination, URL-restorable non-sensitive filters, exact email blind-index search, current-page decryption, responsive rows, details, edit, archive, and delete.
-- Browser-encrypted login passwords plus separate optional email/phone code endpoints and CDKs, with backward-compatible payload v1, Passkey-gated endpoint editing, and masked/reveal/copy password controls in the account list.
-- Browser-only `otpauth://totp`/Base32/image validation and preview, TOTP replace/remove, encrypted storage, RFC 6238 generation, masked reveal/copy, and server clock-skew warning.
-- Client-only 2FAuth schema-1 JSON import with platform allowlisting, duplicate/malformed reporting, and no icon/base64 upload.
+- Encrypted account workspace with paged server reads, URL-restorable non-sensitive filters, exact email blind-index search, browser-side filtered-result sorting/decryption, responsive rows, bulk archive/delete, details, edit, and stable non-sensitive local labels.
+- Browser-encrypted login passwords plus separate optional email/phone code endpoints and CDKs, with backward-compatible payload v1, unlocked-Vault editing, phone-binding history counts, and masked/reveal/copy password controls in the account list.
+- Browser-only `otpauth://totp`/Base32/image validation and preview, TOTP replace/remove, encrypted storage, automatic RFC 6238 refresh/copy, and server clock-skew warning.
+- Client-only 2FAuth schema-1 JSON import with OpenAI/OpenCode Go/Antigravity/ClinePass allowlisting, email identity validation, duplicate/malformed reporting, and no icon/base64 upload.
 - Recovery-code batch normalization, exact blind-index deduplication, per-code encryption, metadata-only lists, Passkey-gated transactional reveal, copy, used/restored state, and deletion UI.
 - Separate service encryption key ring with owner/connection-bound XChaCha token envelopes, Passkey-gated token creation/replacement and service-key rotation with previous-key migration.
-- Sub2API connection validation for HTTPS, scoped authentication, observer schema, stable instance ID, redirect refusal, response size, item isolation, and remote clock skew.
-- Remote account catalog, manual platform-safe links, account-detail integration status, stored quota windows, and connection diagnostics.
+- Sub2API connection validation for HTTPS, read/delete scoped authentication, observer schema, stable instance ID, redirect refusal, response size, safe numeric IDs, item isolation, and remote clock skew.
+- Create-or-replace server provisioning for scoped Sub2API tokens, with exact name/Base URL matching, instance pinning, service-key encryption, audit metadata, and first-sync enqueue.
+- Linked-account deletion through the least-privilege `account_observer:delete` endpoint, with revision locking, all-credential preflight, bounded parallel remote-first deletion, idempotent retry, local preservation on upstream failure, and removal of local catalog/link state only after remote success.
+- Remote account catalog, unique-email automatic OpenAI/ClinePass links, concurrent-delete-safe manual platform links, account-list/detail integration status, stored quota windows, and connection diagnostics.
 - Independent `pg-boss` Worker with unique per-connection jobs, cron scheduling, jitter, bounded pagination, transient backoff, graceful shutdown, PostgreSQL heartbeat, and manual enqueue.
 - Normalized account/sync health, two-run missing detection, deduplicated state events, two-observation alert debounce, in-app acknowledge, automatic resolve, and retention cleanup.
 - Observer secret-leak fixtures reject `credentials`/raw `extra`; service-token AAD and previous-key decryption have unit coverage.
@@ -39,8 +42,8 @@ Baseline: first vertical iteration from `Plan_20260716_224122.md`.
 - PostgreSQL 16.14 acceptance of migrations `0000` through `0005`, encrypted database boundaries, pg-boss tables/queues/schedules, heartbeat refresh, minute jobs, and graceful Worker stop.
 - Built Worker runtime smoke starts `dist/worker/index.mjs`, verifies the child-PID heartbeat, and requires a clean SIGTERM/stopped heartbeat on Linux CI.
 - SHA256-verified Node 22.22.2 acceptance of the release guard, bundled Worker, and supervisor-managed standalone Web + Worker startup with live/ready health.
-- Production 1Panel v2.2.3 Linux runtime acceptance on `onprs`, currently release `f32fb2ba16f2`: relative atomic release activation, Node 22.22.2/ABI 127, supervisor PID 1, Web/Worker UID split, loopback-only proxy port, read-only secret mount, PostgreSQL network reachability, manifest verification, and graceful Compose restart.
-- Production bootstrap at `https://account.api.onprs.top` with a valid HTTPS/WebAuthn identity, owner Passkey, Recovery Kit confirmation, six checksum migrations, schema version 6, pg-boss queues/schedules, fresh Worker heartbeat, closed Setup writes, and `live=200`/`ready=200`.
+- Production 1Panel Linux runtime acceptance on `sub2api_tokyo`, currently release `totp-auto-refresh-20260720T165750Z`: relative atomic release activation, Node 22.22.2/ABI 127, supervisor PID 1, Web/Worker UID split, loopback-only proxy port, read-only secret mount, PostgreSQL network reachability, manifest verification, and graceful Compose startup.
+- Production is available at `https://account-api.onprs.online` with a valid HTTPS/WebAuthn identity, migrated encrypted runtime configuration and PostgreSQL data, re-enrolled owner Passkey, confirmed Recovery Kit, six checksum migrations, fresh Worker heartbeat, closed Setup writes, and `live=200`/`ready=200`.
 - Post-initialization PostgreSQL/config backup with SHA256 verification and a disposable-database restore drill that recovered schema version 6, all migrations, the owner, Passkey, and Vault before dropping the temporary database.
 
 ## Next slice
@@ -53,7 +56,7 @@ Baseline: first vertical iteration from `Plan_20260716_224122.md`.
 
 ## Deployment blockers
 
-- The production Sub2API Observer migration/release and disposable scoped-token integration test are not complete.
+- The production Sub2API Observer route is deployed; a disposable scoped-token end-to-end integration test remains pending.
 - PostgreSQL application traffic uses the private `1panel-network` with SSL disabled, but the PostgreSQL host port is still publicly bound; restrict that exposure without breaking internal container connectivity.
 - The verified server and local backups are not a substitute for recurring encrypted offsite backups; the Config Master Key and Recovery Kit still require owner-controlled offline copies.
 - A Git remote and real GitHub Actions evidence are still unavailable; local PostgreSQL 16, Passkey, Worker, and production runtime acceptance remain the current evidence.

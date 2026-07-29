@@ -9,6 +9,13 @@ import type {
   VaultInitializationResult,
 } from "./core";
 
+export type ManagedAccountPhoneBindingRecord = {
+  id: string;
+  envelope: EncryptedEnvelope;
+};
+
+export type ManagedAccountPhoneBindingCounts = Record<string, number>;
+
 export type VaultWorkerRequest =
   | { id: string; type: "benchmark-kdf" }
   | {
@@ -44,6 +51,12 @@ export type VaultWorkerRequest =
       recordType: string;
       recordId: string;
       envelope: EncryptedEnvelope;
+    }
+  | {
+      id: string;
+      type: "count-managed-account-phone-bindings";
+      ownerUserId: string;
+      records: ManagedAccountPhoneBindingRecord[];
     }
   | {
       id: string;
@@ -88,6 +101,7 @@ export type VaultWorkerResult =
   | EncryptedEnvelope
   | TotpConfiguration
   | TotpResult
+  | ManagedAccountPhoneBindingCounts
   | unknown
   | string
   | { unlocked: boolean }

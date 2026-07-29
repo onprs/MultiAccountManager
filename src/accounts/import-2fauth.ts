@@ -57,9 +57,14 @@ export function parseTwoFAuthExport(value: unknown): TwoFAuthImportResult {
     }
     const platform = detectPlatform(item.data.service ?? "");
     if (!platform) {
-      errors.push({ sourceIndex, message: "无法映射到 OpenAI、OpenCode Go 或 Antigravity" });
+      errors.push({ sourceIndex, message: "无法映射到 OpenAI、OpenCode Go、Antigravity 或 ClinePass" });
       return;
     }
+    if (!isEmail(item.data.account)) {
+      errors.push({ sourceIndex, message: "账号字段必须是有效邮箱" });
+      return;
+    }
+    const loginEmail = item.data.account.trim().toLowerCase();
     const secretBase32 = item.data.secret
       .replace(/[\s-]/g, "")
       .replace(/=+$/g, "")
@@ -74,7 +79,7 @@ export function parseTwoFAuthExport(value: unknown): TwoFAuthImportResult {
 
     const payload = managedAccountPrivatePayloadSchema.safeParse({
       version: 1,
-      ...(isEmail(item.data.account) ? { loginEmail: item.data.account!.toLowerCase() } : {}),
+      loginEmail,
       totp: {
         type: "totp",
         issuer: (item.data.service || platformLabel(platform)).trim(),
@@ -105,13 +110,15 @@ function detectPlatform(service: string): AccountPlatform | null {
   if (normalized.includes("openai") || normalized.includes("chatgpt")) return "openai";
   if (normalized.includes("opencode")) return "opencode_go";
   if (normalized.includes("antigravity")) return "antigravity";
+  if (normalized.includes("clinepass") || normalized.includes("cline pass")) return "clinepass";
   return null;
 }
 
 function platformLabel(platform: AccountPlatform): string {
   if (platform === "openai") return "OpenAI";
   if (platform === "opencode_go") return "OpenCode Go";
-  return "Antigravity";
+  if (platform === "antigravity") return "Antigravity";
+  return "ClinePass";
 }
 
 function isEmail(value: string | null | undefined): value is string {

@@ -5,6 +5,7 @@ export const accountPlatformSchema = z.enum([
   "openai",
   "opencode_go",
   "antigravity",
+  "clinepass",
 ]);
 export type AccountPlatform = z.infer<typeof accountPlatformSchema>;
 
@@ -30,6 +31,10 @@ export const managedAccountPrivatePayloadSchema = z
     loginEmail: z.string().trim().email().max(320).optional(),
     password: z.string().min(1).max(2_000).optional(),
     phone: z.string().trim().max(80).optional(),
+    phoneBindingHistory: z
+      .array(z.string().trim().min(1).max(80))
+      .max(500)
+      .optional(),
     emailOtpEndpoint: z.string().trim().url().max(2_000).optional(),
     emailOtpCdk: z.string().min(1).max(2_000).optional(),
     smsEndpoint: z.string().trim().url().max(2_000).optional(),
@@ -41,6 +46,38 @@ export const managedAccountPrivatePayloadSchema = z
 export type ManagedAccountPrivatePayload = z.infer<
   typeof managedAccountPrivatePayloadSchema
 >;
+
+export function phoneBindingIdentity(value?: string): string | null {
+  const canonical = value?.normalize("NFKC").trim() ?? "";
+  if (!canonical) return null;
+  const digits = canonical.replace(/\D/g, "");
+  return digits || canonical.toLowerCase();
+}
+
+export function phoneBindingHistoryForUpdate(
+  payload: ManagedAccountPrivatePayload,
+  nextPhone?: string,
+): string[] | undefined {
+  const valuesByIdentity = new Map<string, string>();
+  for (const value of payload.phoneBindingHistory ?? []) {
+    const identity = phoneBindingIdentity(value);
+    if (identity) valuesByIdentity.set(identity, value.normalize("NFKC").trim());
+  }
+
+  const previousIdentity = phoneBindingIdentity(payload.phone);
+  if (previousIdentity && previousIdentity !== phoneBindingIdentity(nextPhone)) {
+    valuesByIdentity.set(previousIdentity, payload.phone!.normalize("NFKC").trim());
+  }
+  return valuesByIdentity.size ? [...valuesByIdentity.values()] : undefined;
+}
+
+export function removeTotpFromPrivatePayload(
+  payload: ManagedAccountPrivatePayload,
+): ManagedAccountPrivatePayload {
+  const remaining = { ...payload };
+  delete remaining.totp;
+  return remaining;
+}
 
 const dataEnvelopeSchema = encryptedEnvelopeSchema.extend({
   keyId: z.literal("vault-data-v1"),
@@ -102,6 +139,7 @@ export const managedAccountListQuerySchema = z
     platform: accountPlatformSchema.optional(),
     localStatus: accountLocalStatusSchema.default("active"),
     hasTotp: z.enum(["true", "false"]).transform((value) => value === "true").optional(),
+    includeDeleted: z.enum(["true", "false"]).transform((value) => value === "true").optional(),
     emailBlindIndex: blindIndexSchema.optional(),
     emailDomainBlindIndex: blindIndexSchema.optional(),
   })

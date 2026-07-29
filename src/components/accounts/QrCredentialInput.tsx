@@ -38,7 +38,7 @@ export function QrCredentialInput({
         ) : (
           <ImageUp aria-hidden="true" size={16} />
         )}
-        从图片识别
+        从二维码图片导入
         <input
           type="file"
           accept="image/png,image/jpeg,image/webp"

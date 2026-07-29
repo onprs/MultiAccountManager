@@ -37,6 +37,21 @@ describe("2FAuth client import", () => {
     expect(JSON.stringify(result.accounts[0])).not.toContain("must-be-ignored");
   });
 
+  it("maps ClinePass service names", () => {
+    const result = parseTwoFAuthExport({
+      app: "2fauth_v5.1.1",
+      schema: 1,
+      data: [item({ service: "Cline Pass" })],
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.accounts[0]).toMatchObject({
+      platform: "clinepass",
+      displayName: "ClinePass 导入 1",
+      payload: { totp: { issuer: "Cline Pass" } },
+    });
+  });
+
   it("reports unsupported, malformed, and duplicate records independently", () => {
     const result = parseTwoFAuthExport({
       app: "2fauth_v5.1.1",
@@ -51,6 +66,18 @@ describe("2FAuth client import", () => {
     });
     expect(result.accounts).toHaveLength(1);
     expect(result.errors.map((error) => error.sourceIndex)).toEqual([0, 1, 3, 4]);
+  });
+
+  it("skips records without an email identity", () => {
+    const result = parseTwoFAuthExport({
+      app: "2fauth_v5.1.1",
+      schema: 1,
+      data: [item({ account: "not-an-email" })],
+    });
+    expect(result.accounts).toEqual([]);
+    expect(result.errors).toEqual([
+      { sourceIndex: 0, message: "账号字段必须是有效邮箱" },
+    ]);
   });
 
   it("rejects unknown export schema versions", () => {

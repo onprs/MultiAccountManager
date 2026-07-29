@@ -33,7 +33,7 @@ export const observerQuotaSchema = z
 
 export const observerAccountSchema = z
   .object({
-    id: z.number().int().positive(),
+    id: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
     name: z.string().min(1).max(120),
     platform: z.enum([
       "anthropic",
@@ -41,6 +41,7 @@ export const observerAccountSchema = z
       "opencode_go",
       "gemini",
       "antigravity",
+      "clinepass",
       "grok",
     ]),
     type: z.string().min(1).max(50),

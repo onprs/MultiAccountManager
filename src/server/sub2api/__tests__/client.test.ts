@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  deleteObserverAccount,
   fetchObserverAccounts,
   normalizeSub2apiBaseUrl,
+  testSub2apiConnection,
 } from "@/server/sub2api/client";
 
 const validAccount = {
@@ -29,7 +31,11 @@ const validAccount = {
 function response(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
     status: 200,
-    headers: { "Content-Type": "application/json", Date: "Fri, 17 Jul 2026 10:00:00 GMT" },
+    headers: {
+      "Content-Type": "application/json",
+      Date: "Fri, 17 Jul 2026 10:00:00 GMT",
+      "X-Integration-Scope": "account_observer:read account_observer:delete",
+    },
     ...init,
   });
 }
@@ -89,6 +95,26 @@ describe("Sub2API observer client", () => {
     }
   });
 
+  it("isolates account IDs that cannot be represented without precision loss", async () => {
+    const fetchImpl = vi.fn(async () => response({
+      instance_id: "93d9048d-8a5e-497f-9872-80af714eec61",
+      generated_at: "2026-07-17T10:00:00Z",
+      items: [validAccount, { ...validAccount, id: Number.MAX_SAFE_INTEGER + 1 }],
+    }));
+
+    const result = await fetchObserverAccounts({
+      baseUrl: "https://sub2api.example.com",
+      token: "s2obs_unsafe_id_test_token_that_is_never_logged",
+      fetchImpl,
+    });
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.page.items).toEqual([validAccount]);
+      expect(result.page.invalidItems).toBe(1);
+    }
+  });
+
   it("rejects a declared oversized response before parsing it", async () => {
     const fetchImpl = vi.fn(async (request: RequestInfo | URL) =>
       (void request, new Response("{}", { headers: { "Content-Length": "5242881" } }))
@@ -116,6 +142,111 @@ describe("Sub2API observer client", () => {
       code: "OBSERVER_AUTH_REJECTED",
       retryable: false,
     });
+  });
+
+  it("requires delete capability during connection validation", async () => {
+    const fetchImpl = vi.fn(async () => response({
+      schema_version: 1,
+      instance_id: "93d9048d-8a5e-497f-9872-80af714eec61",
+      generated_at: "2026-07-17T10:00:00Z",
+      items: [],
+    }, {
+      headers: {
+        "Content-Type": "application/json",
+        "X-Integration-Scope": "account_observer:read",
+      },
+    }));
+
+    await expect(testSub2apiConnection({
+      baseUrl: "https://sub2api.example.com",
+      token: "s2obs_read_only_token_that_is_never_logged",
+      fetchImpl,
+    })).rejects.toMatchObject({
+      code: "INTEGRATION_SCOPE_INSUFFICIENT",
+      status: 403,
+    });
+  });
+
+  it("accepts read and delete capability during connection validation", async () => {
+    const fetchImpl = vi.fn(async () => response({
+      schema_version: 1,
+      instance_id: "93d9048d-8a5e-497f-9872-80af714eec61",
+      generated_at: "2026-07-17T10:00:00Z",
+      items: [],
+    }));
+
+    await expect(testSub2apiConnection({
+      baseUrl: "https://sub2api.example.com",
+      token: "s2obs_scoped_token_that_is_never_logged",
+      fetchImpl,
+    })).resolves.toMatchObject({
+      integrationScope: "account_observer:read account_observer:delete",
+    });
+  });
+
+  it("deletes an account through the scoped integration endpoint", async () => {
+    const fetchImpl = vi.fn(async (
+      request: RequestInfo | URL,
+      init?: RequestInit,
+    ) => (void request, void init, new Response(null, { status: 204 })));
+
+    await deleteObserverAccount({
+      baseUrl: "https://sub2api.example.com",
+      token: "s2obs_delete_token_that_is_never_logged",
+      accountId: "42",
+      fetchImpl,
+    });
+
+    const [request, init] = fetchImpl.mock.calls[0] ?? [];
+    expect(String(request)).toBe(
+      "https://sub2api.example.com/api/v1/integrations/account-observer/v1/accounts/42",
+    );
+    expect(init?.method).toBe("DELETE");
+    expect(new Headers(init?.headers).get("Authorization")).toBe(
+      "Bearer s2obs_delete_token_that_is_never_logged",
+    );
+  });
+
+  it("does not treat a missing delete endpoint as a successful deletion", async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 404 }));
+
+    await expect(deleteObserverAccount({
+      baseUrl: "https://sub2api.example.com",
+      token: "s2obs_delete_token_that_is_never_logged",
+      accountId: "42",
+      fetchImpl,
+    })).rejects.toMatchObject({
+      code: "OBSERVER_DELETE_HTTP_ERROR",
+      status: 404,
+      retryable: false,
+    });
+  });
+
+  it("reports a read-only token as insufficient for deletion", async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 403 }));
+
+    await expect(deleteObserverAccount({
+      baseUrl: "https://sub2api.example.com",
+      token: "s2obs_read_only_token_that_is_never_logged",
+      accountId: "42",
+      fetchImpl,
+    })).rejects.toMatchObject({
+      code: "OBSERVER_DELETE_FORBIDDEN",
+      status: 403,
+      retryable: false,
+    });
+  });
+
+  it("rejects invalid remote account IDs before sending a request", async () => {
+    const fetchImpl = vi.fn();
+
+    await expect(deleteObserverAccount({
+      baseUrl: "https://sub2api.example.com",
+      token: "s2obs_delete_token_that_is_never_logged",
+      accountId: "../admin",
+      fetchImpl,
+    })).rejects.toMatchObject({ code: "INVALID_OBSERVER_ACCOUNT_ID" });
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("requires an origin-only HTTPS URL", () => {

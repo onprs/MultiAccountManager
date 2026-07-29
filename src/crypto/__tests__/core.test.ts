@@ -56,6 +56,48 @@ describe("Vault crypto v1", () => {
     ).toEqual({ loginEmail: "owner@example.test", secret: "browser-only" });
   });
 
+  it("counts equivalent managed-account phone bindings without returning phone values", async () => {
+    const session = new VaultCryptoSession();
+    const identity = ids();
+    await session.initialize({ ...identity, password: "password", kdfParams: testKdf });
+    const records = await Promise.all(
+      [
+        { id: "account-1", phone: "+86 138-0013-8000" },
+        { id: "account-2", phone: "+86 (138) 0013 8000" },
+        { id: "account-3", phone: "+86 139 0013 8000" },
+        {
+          id: "account-4",
+          phone: undefined,
+          phoneBindingHistory: ["+86 138 0013 8000"],
+        },
+      ].map(async ({ id, phone, phoneBindingHistory }) => ({
+        id,
+        envelope: await session.encryptRecord({
+          ownerUserId: identity.ownerUserId,
+          recordType: "managed-account-private-v1",
+          recordId: id,
+          value: {
+            version: 1,
+            loginEmail: `${id}@example.test`,
+            phone,
+            phoneBindingHistory,
+          },
+        }),
+      })),
+    );
+
+    const counts = await session.countManagedAccountPhoneBindings({
+      ownerUserId: identity.ownerUserId,
+      records,
+    });
+    expect(counts).toEqual({
+      "account-1": 3,
+      "account-2": 3,
+      "account-3": 1,
+    });
+    expect(JSON.stringify(counts)).not.toContain("13800138000");
+  });
+
   it("supports NFKC-equivalent passwords and rejects wrong credentials uniformly", async () => {
     const session = new VaultCryptoSession();
     const identity = ids();

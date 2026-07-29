@@ -20,6 +20,8 @@
     "test:e2e": "playwright test",
     "test:e2e:passkey": "playwright test --config playwright.passkey.config.ts",
     "test:worker-runtime": "tsx scripts/verify-worker-runtime.ts",
+    "runtime:reconfigure-domain": "tsx src/runtime/reconfigure-domain.ts",
+    "runtime:provision-sub2api": "tsx src/runtime/provision-sub2api-connection.ts",
     "worker": "tsx src/worker/index.ts",
     "supervisor": "tsx src/runtime/supervisor.ts"
   },

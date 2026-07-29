@@ -5,7 +5,10 @@ import { serviceCiphertextSchema } from "@/integrations/schema";
 import { readRuntimeConfig } from "@/runtime/config-store";
 import { closeDatabaseClient, createDatabaseClient } from "@/server/database/connection";
 import { fetchObserverAccounts, Sub2apiClientError } from "@/server/sub2api/client";
+import { normalizeHealthCode } from "./health";
 import { decryptServiceToken, encryptServiceToken } from "./service-cipher";
+
+export { normalizeHealthCode } from "./health";
 
 const maxPagesPerRun = 100;
 const maxRunMilliseconds = 4 * 60 * 1000;
@@ -447,22 +450,6 @@ async function recordSyncFailure(
       where id = ${input.runId} and started_at = ${input.startedAt}
     `;
   });
-}
-
-export function normalizeHealthCode(account: ObserverAccount): string {
-  if (account.status === "disabled" || account.status === "inactive") return "disabled";
-  if (account.error_code === "banned") return "banned";
-  if (account.error_code === "verification_required") return "verification_required";
-  if (account.error_code === "unauthenticated") return "reauth_required";
-  if (account.status === "error" || account.error_code === "upstream_account_error") return "error";
-  switch (account.availability) {
-    case "temporarily_unavailable": return "temporarily_unavailable";
-    case "rate_limited": return "rate_limited";
-    case "overloaded": return "overloaded";
-    case "paused": return "paused";
-    case "available": return account.available ? "healthy" : "unknown";
-    default: return account.available ? "healthy" : "unknown";
-  }
 }
 
 export async function refreshStaleSyncHealth(): Promise<void> {

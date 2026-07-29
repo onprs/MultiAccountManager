@@ -9,6 +9,7 @@ import { readRuntimeConfig, writeRuntimeConfig } from "@/runtime/config-store";
 import { randomBase64Url } from "@/runtime/random";
 import { closeDatabaseClient, createDatabaseClient } from "@/server/database/connection";
 import { hasRecentPasskeyStepUp } from "@/server/auth/step-up";
+import { normalizeHealthCode } from "./health";
 import { decryptServiceToken, encryptServiceToken } from "./service-cipher";
 import {
   normalizeSub2apiBaseUrl,
@@ -61,6 +62,7 @@ export type IntegrationLinkView = {
   linkStatus: string;
   healthCode: string;
   syncHealth: string;
+  remoteStatus: string | null;
   availability: string | null;
   available: boolean | null;
   quota: unknown;
@@ -414,9 +416,19 @@ export async function createAccountLink(input: {
     await sql.begin(async (transaction) => {
       const [candidate] = await transaction<Array<{
         externalPlatform: string; lastSeenAt: Date; managedPlatform: string;
+        remoteStatus: string; availability: string; available: boolean;
+        quota: unknown; quotaErrorCode: string | null; sanitizedErrorCode: string | null;
+        remoteUpdatedAt: Date; connectionEnabled: boolean; lastSuccessAt: Date | null;
+        consecutiveFailures: number; syncIntervalSeconds: number;
       }>>`
         select c.external_platform as "externalPlatform", c.last_seen_at as "lastSeenAt",
-          m.platform as "managedPlatform"
+          m.platform as "managedPlatform", c.remote_status as "remoteStatus",
+          c.availability, c.available, c.quota, c.quota_error_code as "quotaErrorCode",
+          c.sanitized_error_code as "sanitizedErrorCode",
+          c.remote_updated_at as "remoteUpdatedAt", conn.enabled as "connectionEnabled",
+          conn.last_success_at as "lastSuccessAt",
+          conn.consecutive_failures as "consecutiveFailures",
+          conn.sync_interval_seconds as "syncIntervalSeconds"
         from remote_account_catalog c
         join sub2api_connections conn on conn.id = c.connection_id
         join managed_accounts m on m.id = ${input.managedAccountId} and m.owner_user_id = ${input.ownerUserId} and m.deleted_at is null
@@ -424,12 +436,26 @@ export async function createAccountLink(input: {
           and c.external_account_id = ${input.externalAccountId}
           and conn.owner_user_id = ${input.ownerUserId}
         limit 1
+        for update of m
       `;
       if (!candidate) throw new IntegrationServiceError("LINK_CANDIDATE_NOT_FOUND", "Remote or managed account was not found", 404);
       if (candidate.externalPlatform !== candidate.managedPlatform) {
         throw new IntegrationServiceError("LINK_PLATFORM_MISMATCH", "Remote and managed account platforms do not match", 409);
       }
       const linkId = randomUUID();
+      const healthCode = normalizeHealthCode({
+        status: candidate.remoteStatus,
+        availability: candidate.availability,
+        available: candidate.available,
+        error_code: candidate.sanitizedErrorCode ?? undefined,
+      });
+      const syncHealth = calculateSyncHealth({
+        enabled: candidate.connectionEnabled,
+        lastSuccessAt: candidate.lastSuccessAt,
+        consecutiveFailures: candidate.consecutiveFailures,
+        syncIntervalSeconds: candidate.syncIntervalSeconds,
+        now: new Date(),
+      });
       await transaction`
         insert into sub2api_account_links (
           id, owner_user_id, managed_account_id, connection_id,
@@ -440,7 +466,18 @@ export async function createAccountLink(input: {
         )
       `;
       await transaction`
-        insert into sub2api_account_states (link_id) values (${linkId})
+        insert into sub2api_account_states (
+          link_id, health_code, sync_health, remote_status, availability, available,
+          quota, quota_error_code, sanitized_error_code, observed_at, source_updated_at,
+          unhealthy_streak
+        ) values (
+          ${linkId}, ${healthCode}, ${syncHealth}, ${candidate.remoteStatus},
+          ${candidate.availability}, ${candidate.available},
+          ${candidate.quota ? transaction.json(candidate.quota as never) : null},
+          ${candidate.quotaErrorCode}, ${candidate.sanitizedErrorCode},
+          ${candidate.lastSeenAt}, ${candidate.remoteUpdatedAt},
+          ${healthCode === "healthy" ? 0 : 1}
+        )
       `;
       await transaction`
         insert into audit_events (id, actor_user_id, event_type, outcome, request_id, metadata)
@@ -491,7 +528,8 @@ export async function listAccountLinks(input: {
     const rows = await sql<Array<{
       id: string; managedAccountId: string; connectionId: string; connectionName: string;
       externalAccountId: string; externalName: string; externalPlatform: string; linkStatus: string;
-      healthCode: string; syncHealth: string; availability: string | null; available: boolean | null;
+      healthCode: string; syncHealth: string; remoteStatus: string | null;
+      availability: string | null; available: boolean | null;
       quota: unknown; quotaErrorCode: string | null; observedAt: Date | null; sourceUpdatedAt: Date | null;
     }>>`
       select l.id, l.managed_account_id as "managedAccountId", l.connection_id as "connectionId",
@@ -499,7 +537,8 @@ export async function listAccountLinks(input: {
         coalesce(c.external_name, l.external_account_id) as "externalName",
         l.external_platform as "externalPlatform", l.link_status as "linkStatus",
         coalesce(s.health_code, 'unknown') as "healthCode",
-        coalesce(s.sync_health, 'never_synced') as "syncHealth", s.availability,
+        coalesce(s.sync_health, 'never_synced') as "syncHealth",
+        s.remote_status as "remoteStatus", s.availability,
         s.available, s.quota, s.quota_error_code as "quotaErrorCode",
         s.observed_at as "observedAt", s.source_updated_at as "sourceUpdatedAt"
       from sub2api_account_links l

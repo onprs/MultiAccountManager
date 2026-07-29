@@ -7,6 +7,7 @@ import {
   integrationError,
   listConnections,
 } from "@/server/integrations/service";
+import { enqueueManualConnectionSync } from "@/server/jobs/runtime";
 
 export async function GET(request: Request) {
   const owner = await getOwnerSession(request).catch(() => null);
@@ -33,7 +34,8 @@ export async function POST(request: Request) {
       ...body.data,
       requestId: requestId(request),
     });
-    return noStoreJson(result, { status: 201 });
+    const syncJobId = await enqueueManualConnectionSync(result.connection.id).catch(() => null);
+    return noStoreJson({ ...result, syncQueued: Boolean(syncJobId) }, { status: 201 });
   } catch (error) {
     const normalized = integrationError(error);
     return apiError(request, normalized.status, normalized.code, normalized.message);

@@ -3,6 +3,7 @@ import sodium from "libsodium-wrappers-sumo";
 import * as OTPAuth from "otpauth";
 import {
   managedAccountPrivatePayloadSchema,
+  phoneBindingIdentity,
   totpConfigurationSchema,
   type TotpConfiguration,
   type TotpResult,
@@ -410,6 +411,48 @@ export class VaultCryptoSession {
     } finally {
       sodium.memzero(plaintext);
     }
+  }
+
+  async countManagedAccountPhoneBindings(input: {
+    ownerUserId: string;
+    records: Array<{ id: string; envelope: EncryptedEnvelope }>;
+  }): Promise<Record<string, number>> {
+    const currentPhoneByRecordId = new Map<string, string>();
+    const recordIdsByPhone = new Map<string, Set<string>>();
+    for (const record of input.records) {
+      try {
+        const payload = managedAccountPrivatePayloadSchema.parse(
+          await this.decryptRecord({
+            ownerUserId: input.ownerUserId,
+            recordType: "managed-account-private-v1",
+            recordId: record.id,
+            envelope: record.envelope,
+          }),
+        );
+        const currentPhone = phoneBindingIdentity(payload.phone);
+        if (currentPhone) currentPhoneByRecordId.set(record.id, currentPhone);
+
+        const historicalPhones = new Set(
+          [payload.phone, ...(payload.phoneBindingHistory ?? [])]
+            .map((value) => phoneBindingIdentity(value))
+            .filter((value): value is string => Boolean(value)),
+        );
+        for (const phone of historicalPhones) {
+          const recordIds = recordIdsByPhone.get(phone) ?? new Set<string>();
+          recordIds.add(record.id);
+          recordIdsByPhone.set(phone, recordIds);
+        }
+      } catch {
+        // A damaged account must not prevent counts for the remaining records.
+      }
+    }
+
+    return Object.fromEntries(
+      Array.from(currentPhoneByRecordId, ([recordId, phone]) => [
+        recordId,
+        recordIdsByPhone.get(phone)?.size ?? 1,
+      ]),
+    );
   }
 
   parseTotpUri(uri: string): TotpConfiguration {

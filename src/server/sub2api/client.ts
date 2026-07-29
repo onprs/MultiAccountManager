@@ -31,12 +31,14 @@ export type ObserverFetchResult =
       status: "not_modified";
       etag: string | null;
       serverDate: Date | null;
+      integrationScope: string | null;
     }
   | {
       status: "ok";
       page: ObserverAccountsPage;
       etag: string | null;
       serverDate: Date | null;
+      integrationScope: string | null;
     };
 
 export function normalizeSub2apiBaseUrl(raw: string): string {
@@ -104,7 +106,10 @@ export async function fetchObserverAccounts(input: {
 
   const etag = response.headers.get("etag");
   const serverDate = parseServerDate(response.headers.get("date"));
-  if (response.status === 304) return { status: "not_modified", etag, serverDate };
+  const integrationScope = response.headers.get("x-integration-scope");
+  if (response.status === 304) {
+    return { status: "not_modified", etag, serverDate, integrationScope };
+  }
   if (!response.ok) {
     const authFailure = response.status === 401 || response.status === 403;
     const retryable = response.status === 429 || [502, 503, 504].includes(response.status);
@@ -147,6 +152,7 @@ export async function fetchObserverAccounts(input: {
     status: "ok",
     etag,
     serverDate,
+    integrationScope,
     page: {
       schema_version: outer.data.schema_version,
       instance_id: outer.data.instance_id,
@@ -156,6 +162,61 @@ export async function fetchObserverAccounts(input: {
       invalidItems,
     },
   };
+}
+
+export async function deleteObserverAccount(input: {
+  baseUrl: string;
+  token: string;
+  accountId: string;
+  timeoutMilliseconds?: number;
+  fetchImpl?: typeof fetch;
+}): Promise<void> {
+  const baseUrl = normalizeSub2apiBaseUrl(input.baseUrl);
+  const accountId = normalizeObserverAccountId(input.accountId);
+  const url = new URL(`${observerPath}/${encodeURIComponent(accountId)}`, baseUrl);
+
+  let response: Response;
+  try {
+    response = await (input.fetchImpl ?? fetch)(url, {
+      method: "DELETE",
+      headers: new Headers({
+        Accept: "application/json",
+        Authorization: `Bearer ${input.token}`,
+      }),
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(input.timeoutMilliseconds ?? 15_000),
+    });
+  } catch (error) {
+    throw new Sub2apiClientError({
+      code: error instanceof DOMException && error.name === "TimeoutError"
+        ? "OBSERVER_DELETE_TIMEOUT"
+        : "OBSERVER_DELETE_CONNECTION_FAILED",
+      message: "Sub2API account deletion connection failed",
+      retryable: true,
+    });
+  }
+
+  if (response.ok) return;
+  const authFailure = response.status === 401;
+  const forbidden = response.status === 403;
+  const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
+  throw new Sub2apiClientError({
+    code: authFailure
+      ? "OBSERVER_AUTH_REJECTED"
+      : forbidden
+        ? "OBSERVER_DELETE_FORBIDDEN"
+        : retryable
+          ? "OBSERVER_DELETE_RETRYABLE"
+          : "OBSERVER_DELETE_HTTP_ERROR",
+    message: authFailure
+      ? "Sub2API rejected the integration token"
+      : forbidden
+        ? "Sub2API integration token cannot delete accounts"
+        : `Sub2API account deletion returned HTTP ${response.status}`,
+    status: response.status,
+    retryable,
+  });
 }
 
 export async function testSub2apiConnection(input: {
@@ -185,6 +246,17 @@ export async function testSub2apiConnection(input: {
       message: "Sub2API instance identity changed",
     });
   }
+  const grantedScopes = new Set(result.integrationScope?.split(/\s+/).filter(Boolean) ?? []);
+  if (
+    !grantedScopes.has("account_observer:read") ||
+    !grantedScopes.has("account_observer:delete")
+  ) {
+    throw new Sub2apiClientError({
+      code: "INTEGRATION_SCOPE_INSUFFICIENT",
+      message: "Sub2API integration token requires read and delete scopes",
+      status: 403,
+    });
+  }
   const midpoint = startedAt + (Date.now() - startedAt) / 2;
   const clockSkewSeconds = result.serverDate
     ? Math.round((result.serverDate.getTime() - midpoint) / 1000)
@@ -195,6 +267,7 @@ export async function testSub2apiConnection(input: {
     generatedAt: result.page.generated_at,
     clockSkewSeconds,
     invalidItems: result.page.invalidItems,
+    integrationScope: result.integrationScope,
   };
 }
 
@@ -231,6 +304,18 @@ function responseTooLargeError(): Sub2apiClientError {
     code: "RESPONSE_TOO_LARGE",
     message: "Sub2API observer response is too large",
   });
+}
+
+function normalizeObserverAccountId(raw: string): string {
+  const value = raw.trim();
+  const exceedsInt64 = value.length === 19 && value > "9223372036854775807";
+  if (!/^[1-9]\d{0,18}$/.test(value) || exceedsInt64) {
+    throw new Sub2apiClientError({
+      code: "INVALID_OBSERVER_ACCOUNT_ID",
+      message: "Sub2API account ID is invalid",
+    });
+  }
+  return value;
 }
 
 function parseServerDate(raw: string | null): Date | null {

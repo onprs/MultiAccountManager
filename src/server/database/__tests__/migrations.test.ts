@@ -14,4 +14,15 @@ describe("database migrations", () => {
     expect(migration?.sql).not.toContain("access_token");
     expect(migration?.sql).not.toContain("refresh_token");
   });
+
+  it("adds ClinePass to the managed account platform constraint", async () => {
+    const migrations = await expectedMigrationFiles();
+    const migration = migrations.find(
+      (entry) => entry.name === "0006_clinepass_account_platform.sql",
+    );
+
+    expect(migration).toBeDefined();
+    expect(migration?.sql).toContain("'clinepass'");
+    expect(migration?.sql).toContain("'{\"version\":7}'::jsonb");
+  });
 });

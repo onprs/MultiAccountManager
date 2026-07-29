@@ -20,7 +20,7 @@ export function SecretInput({
   const inputId = useId();
 
   return (
-    <div className="block space-y-2">
+    <div className="block min-w-0 space-y-2">
       <label htmlFor={inputId} className="block text-xs font-semibold text-[var(--muted)]">{label}</label>
       <div className="relative">
         <input
@@ -31,7 +31,7 @@ export function SecretInput({
           autoComplete={autoComplete}
           maxLength={maxLength}
           spellCheck={false}
-          className="min-h-10 w-full rounded-[6px] border border-[var(--border)] bg-white px-3 py-2 pr-11 text-sm"
+          className="min-h-10 w-full min-w-0 rounded-[6px] border border-[var(--border)] bg-white px-3 py-2 pr-11 text-sm"
         />
         <button
           type="button"

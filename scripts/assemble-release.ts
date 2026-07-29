@@ -62,7 +62,17 @@ async function makeStandaloneLinksPortable(): Promise<void> {
     (left, right) => right.path.split(path.sep).length - left.path.split(path.sep).length,
   );
   for (const link of linksByDepth) {
-    const resolvedTarget = await realpath(link.path);
+    let resolvedTarget: string;
+    try {
+      resolvedTarget = await realpath(link.path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      const relativeLink = path.relative(standaloneModules, link.path);
+      if (relativeLink.startsWith(`..${path.sep}`) || path.isAbsolute(relativeLink)) {
+        throw new Error(`Standalone symlink is outside node_modules: ${link.path}`);
+      }
+      resolvedTarget = await realpath(path.join(sourceModules, relativeLink));
+    }
     if (isWithin(standalone, resolvedTarget)) continue;
     if (!isWithin(sourceModules, resolvedTarget)) {
       throw new Error(`Standalone symlink escapes node_modules: ${link.path}`);
@@ -175,7 +185,7 @@ async function main() {
     targetNodeVersion: "22.22.2",
     buildNodeVersion: process.versions.node,
     nodeAbi: process.versions.modules,
-    schemaVersion: 6,
+    schemaVersion: 7,
     configVersion: 1,
     cryptoVersion: 1,
     files: hashes,

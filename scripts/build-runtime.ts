@@ -7,6 +7,8 @@ async function main() {
     entryPoints: [
       path.join(projectRoot, "src/runtime/supervisor.ts"),
       path.join(projectRoot, "src/runtime/upgrade.ts"),
+      path.join(projectRoot, "src/runtime/reconfigure-domain.ts"),
+      path.join(projectRoot, "src/runtime/provision-sub2api-connection.ts"),
       path.join(projectRoot, "src/worker/index.ts"),
     ],
     bundle: true,

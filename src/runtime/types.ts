@@ -101,16 +101,50 @@ export const serviceKeyRingSchema = z
     }
   });
 
-export const runtimeConfigSchema = z.object({
-  version: z.literal(1),
-  setupState: setupStateSchema,
-  database: databaseConfigSchema,
-  application: applicationConfigSchema,
-  auth: z.object({ secret: z.string().min(43).max(128) }),
-  serviceEncryption: serviceKeyRingSchema,
-  createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime(),
-});
+export const domainMigrationStateSchema = z
+  .object({
+    id: z.string().uuid(),
+    previousApplication: applicationConfigSchema,
+    preparedAt: z.string().datetime(),
+  })
+  .strict();
+
+export const runtimeConfigSchema = z
+  .object({
+    version: z.literal(1),
+    setupState: setupStateSchema,
+    database: databaseConfigSchema,
+    application: applicationConfigSchema,
+    auth: z.object({ secret: z.string().min(43).max(128) }),
+    serviceEncryption: serviceKeyRingSchema,
+    domainMigration: domainMigrationStateSchema.optional(),
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+  })
+  .superRefine((value, context) => {
+    if (value.domainMigration && value.setupState !== "creating_owner") {
+      context.addIssue({
+        code: "custom",
+        path: ["domainMigration"],
+        message: "Domain migration state requires owner credential setup",
+      });
+    }
+    if (
+      value.domainMigration &&
+      value.application.publicUrl ===
+        value.domainMigration.previousApplication.publicUrl &&
+      value.application.webAuthnOrigin ===
+        value.domainMigration.previousApplication.webAuthnOrigin &&
+      value.application.webAuthnRpId ===
+        value.domainMigration.previousApplication.webAuthnRpId
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["domainMigration"],
+        message: "Domain migration must change the application identity",
+      });
+    }
+  });
 
 export type RuntimeConfig = z.infer<typeof runtimeConfigSchema>;
 

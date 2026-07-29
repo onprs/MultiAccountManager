@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
+  accountPlatformSchema,
   createManagedAccountRequestSchema,
   createRecoveryCodesRequestSchema,
   managedAccountListQuerySchema,
   managedAccountPrivatePayloadSchema,
+  phoneBindingHistoryForUpdate,
+  removeTotpFromPrivatePayload,
   totpConfigurationSchema,
 } from "../schema";
 
@@ -17,6 +20,10 @@ const envelope = {
 };
 
 describe("managed account schemas", () => {
+  it("accepts ClinePass as an account platform", () => {
+    expect(accountPlatformSchema.parse("clinepass")).toBe("clinepass");
+  });
+
   it("accepts the versioned browser-only payload", () => {
     expect(
       managedAccountPrivatePayloadSchema.parse({
@@ -44,6 +51,66 @@ describe("managed account schemas", () => {
       password: "  exact password  ",
       emailOtpCdk: "email-cdk-value",
       smsEndpointCdk: "sms-cdk-value",
+    });
+  });
+
+  it("preserves distinct historical phone bindings when a phone changes", () => {
+    const payload = managedAccountPrivatePayloadSchema.parse({
+      version: 1,
+      loginEmail: "owner@example.test",
+      phone: "+1 (202) 555-0123",
+    });
+
+    expect(
+      phoneBindingHistoryForUpdate(payload, "+1 202 555 0123"),
+    ).toBeUndefined();
+    expect(phoneBindingHistoryForUpdate(payload, "+44 20 7946 0958")).toEqual([
+      "+1 (202) 555-0123",
+    ]);
+    expect(
+      phoneBindingHistoryForUpdate(
+        {
+          ...payload,
+          phone: "+44 20 7946 0958",
+          phoneBindingHistory: ["+1 (202) 555-0123"],
+        },
+        "+1 202 555 0123",
+      ),
+    ).toEqual(["+1 (202) 555-0123", "+44 20 7946 0958"]);
+  });
+
+  it("removes only TOTP from the browser-only payload", () => {
+    const payload = managedAccountPrivatePayloadSchema.parse({
+      version: 1,
+      loginEmail: "owner@example.test",
+      password: "exact password",
+      phone: "+12025550123",
+      emailOtpEndpoint: "https://mail-code.example.test/inbox",
+      emailOtpCdk: "email-cdk-value",
+      smsEndpoint: "https://sms-code.example.test/inbox",
+      smsEndpointCdk: "sms-cdk-value",
+      notes: "sensitive note",
+      totp: {
+        type: "totp",
+        issuer: "OpenAI",
+        label: "owner@example.test",
+        secretBase32: "JBSWY3DPEHPK3PXP",
+        algorithm: "SHA1",
+        digits: 6,
+        period: 30,
+      },
+    });
+
+    expect(removeTotpFromPrivatePayload(payload)).toEqual({
+      version: 1,
+      loginEmail: "owner@example.test",
+      password: "exact password",
+      phone: "+12025550123",
+      emailOtpEndpoint: "https://mail-code.example.test/inbox",
+      emailOtpCdk: "email-cdk-value",
+      smsEndpoint: "https://sms-code.example.test/inbox",
+      smsEndpointCdk: "sms-cdk-value",
+      notes: "sensitive note",
     });
   });
 
@@ -104,10 +171,22 @@ describe("managed account schemas", () => {
       }).success,
     ).toBe(false);
     expect(
-      managedAccountListQuerySchema.parse({ page: "2", hasTotp: "true" }),
-    ).toMatchObject({ page: 2, pageSize: 25, hasTotp: true });
+      managedAccountListQuerySchema.parse({
+        page: "2",
+        hasTotp: "true",
+        includeDeleted: "true",
+      }),
+    ).toMatchObject({
+      page: 2,
+      pageSize: 25,
+      hasTotp: true,
+      includeDeleted: true,
+    });
     expect(
       managedAccountListQuerySchema.safeParse({ pageSize: "101" }).success,
+    ).toBe(false);
+    expect(
+      managedAccountListQuerySchema.safeParse({ includeDeleted: "1" }).success,
     ).toBe(false);
   });
 });

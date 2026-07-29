@@ -35,6 +35,8 @@ async function handle(request: VaultWorkerRequest): Promise<VaultWorkerResult> {
       return session.encryptRecord(request);
     case "decrypt-record":
       return session.decryptRecord(request);
+    case "count-managed-account-phone-bindings":
+      return session.countManagedAccountPhoneBindings(request);
     case "blind-index":
       return session.blindIndex(
         request.value,

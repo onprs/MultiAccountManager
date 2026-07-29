@@ -8,10 +8,10 @@ export async function POST(request: NextRequest) {
   const rejected = await guardSetupWrite(request);
   if (rejected) return rejected;
   try {
-    const owner = await completeOwnerSetup(requestId(request));
+    const result = await completeOwnerSetup(requestId(request));
     const response = noStoreJson({
-      state: "creating_vault",
-      owner: { id: owner.id, name: owner.name },
+      state: result.setupState,
+      owner: { id: result.owner.id, name: result.owner.name },
     });
     revokeSetupSessions(response);
     return response;

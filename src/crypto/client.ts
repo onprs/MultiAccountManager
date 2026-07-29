@@ -9,6 +9,8 @@ import type {
   VaultCryptoDocument,
 } from "./schema";
 import type {
+  ManagedAccountPhoneBindingCounts,
+  ManagedAccountPhoneBindingRecord,
   VaultWorkerRequest,
   VaultWorkerRequestBody,
   VaultWorkerResponse,
@@ -95,6 +97,16 @@ export class VaultCryptoClient {
     envelope: EncryptedEnvelope;
   }): Promise<T> {
     return this.request({ type: "decrypt-record", ...input }, true) as Promise<T>;
+  }
+
+  countManagedAccountPhoneBindings(input: {
+    ownerUserId: string;
+    records: ManagedAccountPhoneBindingRecord[];
+  }): Promise<ManagedAccountPhoneBindingCounts> {
+    return this.request(
+      { type: "count-managed-account-phone-bindings", ...input },
+      true,
+    ) as Promise<ManagedAccountPhoneBindingCounts>;
   }
 
   blindIndex(

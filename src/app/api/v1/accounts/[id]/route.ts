@@ -119,7 +119,7 @@ export async function DELETE(request: Request, context: Context) {
     });
   } catch (error) {
     if (error instanceof ManagedAccountServiceError) {
-      return apiError(request, 409, error.code, error.message);
+      return apiError(request, error.status, error.code, error.message);
     }
     return apiError(request, 503, "ACCOUNT_DELETE_FAILED", "Managed account deletion failed");
   }
