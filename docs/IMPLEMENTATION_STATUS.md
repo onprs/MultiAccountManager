@@ -42,9 +42,10 @@ Baseline: first vertical iteration from `Plan_20260716_224122.md`.
 - PostgreSQL 16.14 acceptance of migrations `0000` through `0005`, encrypted database boundaries, pg-boss tables/queues/schedules, heartbeat refresh, minute jobs, and graceful Worker stop.
 - Built Worker runtime smoke starts `dist/worker/index.mjs`, verifies the child-PID heartbeat, and requires a clean SIGTERM/stopped heartbeat on Linux CI.
 - SHA256-verified Node 22.22.2 acceptance of the release guard, bundled Worker, and supervisor-managed standalone Web + Worker startup with live/ready health.
-- Production 1Panel Linux runtime acceptance on `sub2api_tokyo`, currently release `totp-auto-refresh-20260720T165750Z`: relative atomic release activation, Node 22.22.2/ABI 127, supervisor PID 1, Web/Worker UID split, loopback-only proxy port, read-only secret mount, PostgreSQL network reachability, manifest verification, and graceful Compose startup.
-- Production is available at `https://account-api.onprs.online` with a valid HTTPS/WebAuthn identity, migrated encrypted runtime configuration and PostgreSQL data, re-enrolled owner Passkey, confirmed Recovery Kit, six checksum migrations, fresh Worker heartbeat, closed Setup writes, and `live=200`/`ready=200`.
-- Post-initialization PostgreSQL/config backup with SHA256 verification and a disposable-database restore drill that recovered schema version 6, all migrations, the owner, Passkey, and Vault before dropping the temporary database.
+- Production 1Panel Linux runtime acceptance on `sub2api_tokyo`, currently release `01b7f084fc23`: relative atomic release activation, Node 22.22.2/ABI 127, supervisor PID 1, Web/Worker UID split, loopback-only proxy port, read-only secret mount, manifest verification, graceful restart, and zero post-start application errors.
+- Production is available at `https://account-api.onprs.online` with schema version 7 and seven matching migration checksums, fresh release-tagged Worker heartbeat, closed Setup writes, and internal/public `live=200`/`ready=200`.
+- Production Sub2API integration uses one active CIDR-restricted `account_observer:read account_observer:delete` token; the old read-only token is revoked, plaintext provisioning material is removed, and a post-revocation sync observed 34 accounts with zero invalid items or errors.
+- Pre/post release Account Vault and Sub2API custom-format database dumps, `runtime.enc`, and release manifests are SHA256-verified and accepted by `pg_restore -l`; the earlier disposable-database restore drill recovered the owner, Passkey, and Vault before dropping the temporary database.
 
 ## Next slice
 
@@ -56,7 +57,7 @@ Baseline: first vertical iteration from `Plan_20260716_224122.md`.
 
 ## Deployment blockers
 
-- The production Sub2API Observer route is deployed; a disposable scoped-token end-to-end integration test remains pending.
+- The production Sub2API Observer read/delete contract is live-verified, including an idempotent DELETE for a nonexistent account; a disposable linked-account end-to-end deletion through Account Vault remains pending.
 - PostgreSQL application traffic uses the private `1panel-network` with SSL disabled, but the PostgreSQL host port is still publicly bound; restrict that exposure without breaking internal container connectivity.
 - The verified server and local backups are not a substitute for recurring encrypted offsite backups; the Config Master Key and Recovery Kit still require owner-controlled offline copies.
 - A Git remote and real GitHub Actions evidence are still unavailable; local PostgreSQL 16, Passkey, Worker, and production runtime acceptance remain the current evidence.
