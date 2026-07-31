@@ -430,18 +430,12 @@ export class VaultCryptoSession {
           }),
         );
         const currentPhone = phoneBindingIdentity(payload.phone);
-        if (currentPhone) currentPhoneByRecordId.set(record.id, currentPhone);
+        if (!currentPhone) continue;
 
-        const historicalPhones = new Set(
-          [payload.phone, ...(payload.phoneBindingHistory ?? [])]
-            .map((value) => phoneBindingIdentity(value))
-            .filter((value): value is string => Boolean(value)),
-        );
-        for (const phone of historicalPhones) {
-          const recordIds = recordIdsByPhone.get(phone) ?? new Set<string>();
-          recordIds.add(record.id);
-          recordIdsByPhone.set(phone, recordIds);
-        }
+        currentPhoneByRecordId.set(record.id, currentPhone);
+        const recordIds = recordIdsByPhone.get(currentPhone) ?? new Set<string>();
+        recordIds.add(record.id);
+        recordIdsByPhone.set(currentPhone, recordIds);
       } catch {
         // A damaged account must not prevent counts for the remaining records.
       }

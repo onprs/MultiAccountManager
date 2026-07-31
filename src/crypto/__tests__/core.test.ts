@@ -56,7 +56,7 @@ describe("Vault crypto v1", () => {
     ).toEqual({ loginEmail: "owner@example.test", secret: "browser-only" });
   });
 
-  it("counts equivalent managed-account phone bindings without returning phone values", async () => {
+  it("counts only current equivalent managed-account phone bindings", async () => {
     const session = new VaultCryptoSession();
     const identity = ids();
     await session.initialize({ ...identity, password: "password", kdfParams: testKdf });
@@ -68,6 +68,11 @@ describe("Vault crypto v1", () => {
         {
           id: "account-4",
           phone: undefined,
+          phoneBindingHistory: ["+86 138 0013 8000"],
+        },
+        {
+          id: "account-5",
+          phone: "+86 139 0013 8000",
           phoneBindingHistory: ["+86 138 0013 8000"],
         },
       ].map(async ({ id, phone, phoneBindingHistory }) => ({
@@ -91,9 +96,10 @@ describe("Vault crypto v1", () => {
       records,
     });
     expect(counts).toEqual({
-      "account-1": 3,
-      "account-2": 3,
-      "account-3": 1,
+      "account-1": 2,
+      "account-2": 2,
+      "account-3": 2,
+      "account-5": 2,
     });
     expect(JSON.stringify(counts)).not.toContain("13800138000");
   });
