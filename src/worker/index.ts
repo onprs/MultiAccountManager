@@ -41,6 +41,11 @@ async function main() {
   };
   process.on("SIGTERM", requestShutdown);
   process.on("SIGINT", requestShutdown);
+  process.on("unhandledRejection", (reason) => {
+    log("error", "unhandled_rejection", {
+      message: reason instanceof Error ? reason.message : "unknown rejection",
+    });
+  });
 
   let previousState: string | undefined;
   let runtime: Awaited<ReturnType<typeof startJobRuntime>> | undefined;
@@ -61,7 +66,15 @@ async function main() {
   }
 
   while (!stopping) await sleep(Math.max(1000, pollMilliseconds));
-  if (runtime) await runtime.stop();
+  if (runtime) {
+    try {
+      await runtime.stop();
+    } catch (error) {
+      log("error", "shutdown_error", {
+        message: error instanceof Error ? error.message : "unknown shutdown failure",
+      });
+    }
+  }
   log("info", "shutdown_complete");
 }
 
