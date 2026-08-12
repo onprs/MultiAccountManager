@@ -43,25 +43,29 @@ describe("Sub2API automatic account linking", () => {
     expect(normalizeRemoteAccountEmail("not-an-email")).toBeNull();
   });
 
-  it("supports OpenAI and ClinePass automatic linking", () => {
+  it("supports OpenAI, OpenCode Go and ClinePass automatic linking", () => {
     expect(supportsAutomaticAccountLink("openai")).toBe(true);
+    expect(supportsAutomaticAccountLink("opencode_go")).toBe(true);
     expect(supportsAutomaticAccountLink("clinepass")).toBe(true);
     expect(supportsAutomaticAccountLink("antigravity")).toBe(false);
   });
 
-  it("links unique OpenAI and ClinePass email matches within each platform", () => {
+  it("links unique OpenAI, OpenCode Go and ClinePass email matches within each platform", () => {
     expect(selectUniqueEmailLinks({
       local: [
         local("local-openai", "shared-index"),
+        local("local-opencode-go", "shared-index", "opencode_go"),
         local("local-clinepass", "shared-index", "clinepass"),
       ],
       remote: [
         remote("remote-openai", "shared-index"),
+        remote("remote-opencode-go", "shared-index", "opencode_go"),
         remote("remote-clinepass", "shared-index", "clinepass"),
       ],
       ...unlinked,
     })).toEqual([
       { managedAccountId: "local-openai", externalAccountId: "remote-openai" },
+      { managedAccountId: "local-opencode-go", externalAccountId: "remote-opencode-go" },
       { managedAccountId: "local-clinepass", externalAccountId: "remote-clinepass" },
     ]);
   });

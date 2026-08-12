@@ -28,7 +28,11 @@ export function normalizeRemoteAccountEmail(value: string): string | null {
   return normalized;
 }
 
-const automaticLinkPlatforms = ["openai", "clinepass"] as const satisfies readonly AccountPlatform[];
+const automaticLinkPlatforms = [
+  "openai",
+  "opencode_go",
+  "clinepass",
+] as const satisfies readonly AccountPlatform[];
 
 export function supportsAutomaticAccountLink(platform: AccountPlatform): boolean {
   return automaticLinkPlatforms.some((candidate) => candidate === platform);
