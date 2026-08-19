@@ -32,6 +32,7 @@ import {
   useState,
 } from "react";
 import { parseTwoFAuthExport } from "@/accounts/import-2fauth";
+import { parseOpenRouterExport } from "@/accounts/import-openrouter";
 import {
   managedAccountPrivatePayloadSchema,
   totpConfigurationSchema,
@@ -581,6 +582,94 @@ export function AccountManager({
     }
   }
 
+  async function importOpenRouter(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      setError("OpenRouter 账号文件不能超过 10 MiB");
+      return;
+    }
+    setImporting(true);
+    setImportReport(null);
+    setError(null);
+    try {
+      const parsed = parseOpenRouterExport(JSON.parse(await file.text()));
+      let imported = 0;
+      let saveFailures = 0;
+      const batchSize = 50;
+
+      for (let i = 0; i < parsed.accounts.length; i += batchSize) {
+        const chunk = parsed.accounts.slice(i, i + batchSize);
+        try {
+          const encryptedAccounts = await Promise.all(
+            chunk.map(async (account) => {
+              const id = crypto.randomUUID();
+              const displayNameBase = account.displayName?.trim()
+                || `${platformLabels[account.platform]} 账号`;
+              const displayName = `${displayNameBase.slice(0, 109)} · ${id.slice(0, 8)}`;
+              const encrypted = await client.encryptRecord({
+                ownerUserId,
+                recordType: "managed-account-private-v1",
+                recordId: id,
+                value: account.payload,
+              });
+              const email = account.payload.loginEmail
+                ?.normalize("NFKC")
+                .trim()
+                .toLowerCase();
+              const domain = email?.split("@")[1];
+              const [emailIndex, domainIndex] = await Promise.all([
+                email
+                  ? client.blindIndex(email, "managed-account-login-email-v1")
+                  : Promise.resolve(null),
+                domain
+                  ? client.blindIndex(domain, "managed-account-email-domain-v1")
+                  : Promise.resolve(null),
+              ]);
+
+              return {
+                id,
+                platform: account.platform,
+                displayName,
+                privatePayload: encrypted,
+                emailBlindIndex: emailIndex,
+                emailDomainBlindIndex: domainIndex,
+                hasTotp: false,
+              };
+            }),
+          );
+
+          await api<{ created: ManagedAccount[]; count: number }>("/api/v1/accounts/batch", {
+            method: "POST",
+            body: JSON.stringify({ accounts: encryptedAccounts }),
+          });
+          imported += chunk.length;
+        } catch {
+          // 如果批量失败，回退为单条尝试
+          for (const account of chunk) {
+            try {
+              await persistEncryptedAccount(account);
+              imported += 1;
+            } catch {
+              saveFailures += 1;
+            }
+          }
+        }
+      }
+
+      setImportReport(
+        `OpenRouter 账号: 已导入 ${imported} 个；跳过 ${parsed.errors.length} 个；保存失败 ${saveFailures} 个`,
+      );
+      setPage(1);
+      await Promise.all([load(), loadPhoneBindingCounts(), autoLinkSub2apiAccounts()]);
+    } catch {
+      setError("OpenRouter accounts.json 无法解析");
+    } finally {
+      setImporting(false);
+    }
+  }
+
   async function importTwoFAuth(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -747,6 +836,11 @@ export function AccountManager({
           <p className="mt-1 text-sm text-[var(--muted)]">{total} 个托管账号</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <label className={secondaryButton}>
+            {importing ? <LoaderCircle className="animate-spin" aria-hidden="true" size={16} /> : <FileJson aria-hidden="true" size={16} />}
+            导入 OpenRouter JSON
+            <input type="file" accept="application/json,.json" disabled={importing} onChange={(event) => void importOpenRouter(event)} className="sr-only" />
+          </label>
           <label className={secondaryButton}>
             {importing ? <LoaderCircle className="animate-spin" aria-hidden="true" size={16} /> : <FileJson aria-hidden="true" size={16} />}
             导入 2FAuth JSON

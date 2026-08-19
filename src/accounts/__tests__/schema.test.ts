@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   accountPlatformSchema,
+  batchCreateManagedAccountsRequestSchema,
   createManagedAccountRequestSchema,
   createRecoveryCodesRequestSchema,
   managedAccountListQuerySchema,
@@ -113,6 +114,35 @@ describe("managed account schemas", () => {
       smsEndpointCdk: "sms-cdk-value",
       notes: "sensitive note",
     });
+  });
+
+  it("validates batch account creation requests and rejects plaintext fields", () => {
+    const validItem = {
+      id: randomUUID(),
+      platform: "openrouter",
+      displayName: "OpenRouter 导入 1",
+      privatePayload: envelope,
+      emailBlindIndex: null,
+      emailDomainBlindIndex: null,
+      hasTotp: false,
+    };
+    expect(
+      batchCreateManagedAccountsRequestSchema.safeParse({
+        accounts: [validItem],
+      }).success,
+    ).toBe(true);
+
+    expect(
+      batchCreateManagedAccountsRequestSchema.safeParse({
+        accounts: [],
+      }).success,
+    ).toBe(false);
+
+    expect(
+      batchCreateManagedAccountsRequestSchema.safeParse({
+        accounts: [{ ...validItem, loginEmail: "plain@leak.test" }],
+      }).success,
+    ).toBe(false);
   });
 
   it("rejects plaintext fields at the server API boundary", () => {

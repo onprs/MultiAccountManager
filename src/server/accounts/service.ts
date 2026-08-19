@@ -263,6 +263,92 @@ export async function createManagedAccount(input: {
   }
 }
 
+export async function batchCreateManagedAccounts(input: {
+  ownerUserId: string;
+  accounts: Array<{
+    id: string;
+    platform: AccountPlatform;
+    displayName: string;
+    privatePayload: EncryptedEnvelope;
+    emailBlindIndex: string | null;
+    emailDomainBlindIndex: string | null;
+    hasTotp: boolean;
+  }>;
+  requestId?: string;
+}): Promise<{ created: ManagedAccount[]; count: number }> {
+  const config = await readRuntimeConfig();
+  const sql = createDatabaseClient(config.database, { max: 1 });
+  try {
+    return await sql.begin(async (transaction) => {
+      const createdList: ManagedAccount[] = [];
+      for (const account of input.accounts) {
+        const [created] = await transaction<Array<ManagedAccountRow>>`
+          insert into managed_accounts (
+            id,
+            owner_user_id,
+            platform,
+            display_name,
+            private_payload,
+            email_blind_index,
+            email_domain_blind_index,
+            has_totp
+          ) values (
+            ${account.id},
+            ${input.ownerUserId},
+            ${account.platform},
+            ${account.displayName},
+            ${transaction.json(account.privatePayload)},
+            ${account.emailBlindIndex},
+            ${account.emailDomainBlindIndex},
+            ${account.hasTotp}
+          )
+          returning
+            id,
+            owner_user_id as "ownerUserId",
+            platform,
+            display_name as "displayName",
+            private_payload as "privatePayload",
+            email_blind_index as "emailBlindIndex",
+            email_domain_blind_index as "emailDomainBlindIndex",
+            has_totp as "hasTotp",
+            local_status as "localStatus",
+            revision,
+            created_at as "createdAt",
+            updated_at as "updatedAt"
+        `;
+        if (created) {
+          createdList.push(parseRow(created));
+        }
+      }
+
+      await transaction`
+        insert into audit_events (
+          id, actor_user_id, event_type, outcome, request_id, metadata
+        ) values (
+          ${randomUUID()},
+          ${input.ownerUserId},
+          'managed_account.batch_created',
+          'success',
+          ${input.requestId ?? null},
+          ${transaction.json({ count: createdList.length, accountIds: createdList.map((a) => a.id) })}
+        )
+      `;
+
+      return { created: createdList, count: createdList.length };
+    });
+  } catch (error) {
+    if ((error as { code?: string }).code === "23505") {
+      throw new ManagedAccountServiceError(
+        "ACCOUNT_CONFLICT",
+        "One or more managed accounts already exist in batch",
+      );
+    }
+    throw error;
+  } finally {
+    await closeDatabaseClient(sql).catch(() => undefined);
+  }
+}
+
 export async function updateManagedAccount(input: {
   id: string;
   ownerUserId: string;

@@ -115,6 +115,12 @@ export const createManagedAccountRequestSchema = z
   })
   .strict();
 
+export const batchCreateManagedAccountsRequestSchema = z
+  .object({
+    accounts: z.array(createManagedAccountRequestSchema).min(1).max(200),
+  })
+  .strict();
+
 export const updateManagedAccountRequestSchema = z
   .object({
     expectedRevision: z.number().int().min(1),
