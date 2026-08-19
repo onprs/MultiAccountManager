@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import { apiError, noStoreJson, requestId } from "@/lib/http";
 import { readRuntimeConfig } from "@/runtime/config-store";
 import {
@@ -30,7 +31,22 @@ export async function POST(request: Request) {
   const suppliedKey = extractApiKey(request);
   const expectedKey = process.env.ACCOUNT_VAULT_IMPORT_KEY || config.auth.secret;
 
-  if (!suppliedKey || suppliedKey !== expectedKey) {
+  let setupToken = "";
+  try {
+    const setupTokenFile = process.env.SETUP_TOKEN_FILE || "/run/secrets/account-vault-setup-token";
+    setupToken = (await fs.readFile(setupTokenFile, "utf-8")).trim();
+  } catch {
+    // ignore
+  }
+
+  const isAuthorized = Boolean(
+    suppliedKey && (
+      suppliedKey === expectedKey ||
+      (setupToken && suppliedKey === setupToken)
+    ),
+  );
+
+  if (!isAuthorized) {
     return apiError(request, 401, "UNAUTHORIZED", "Invalid or missing API key for import");
   }
 
