@@ -32,6 +32,7 @@ const automaticLinkPlatforms = [
   "openai",
   "opencode_go",
   "clinepass",
+  "openrouter",
 ] as const satisfies readonly AccountPlatform[];
 
 export function supportsAutomaticAccountLink(platform: AccountPlatform): boolean {

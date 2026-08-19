@@ -52,6 +52,21 @@ describe("2FAuth client import", () => {
     });
   });
 
+  it("maps OpenRouter service names", () => {
+    const result = parseTwoFAuthExport({
+      app: "2fauth_v5.1.1",
+      schema: 1,
+      data: [item({ service: "OpenRouter" })],
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.accounts[0]).toMatchObject({
+      platform: "openrouter",
+      displayName: "OpenRouter 导入 1",
+      payload: { totp: { issuer: "OpenRouter" } },
+    });
+  });
+
   it("reports unsupported, malformed, and duplicate records independently", () => {
     const result = parseTwoFAuthExport({
       app: "2fauth_v5.1.1",

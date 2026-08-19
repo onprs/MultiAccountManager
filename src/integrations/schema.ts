@@ -43,6 +43,7 @@ export const observerAccountSchema = z
       "antigravity",
       "clinepass",
       "grok",
+      "openrouter",
     ]),
     type: z.string().min(1).max(50),
     status: z.string().min(1).max(50),

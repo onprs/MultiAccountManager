@@ -57,7 +57,7 @@ export function parseTwoFAuthExport(value: unknown): TwoFAuthImportResult {
     }
     const platform = detectPlatform(item.data.service ?? "");
     if (!platform) {
-      errors.push({ sourceIndex, message: "无法映射到 OpenAI、OpenCode Go、Antigravity 或 ClinePass" });
+      errors.push({ sourceIndex, message: "无法映射到 OpenAI、OpenCode Go、Antigravity、ClinePass 或 OpenRouter" });
       return;
     }
     if (!isEmail(item.data.account)) {
@@ -111,6 +111,7 @@ function detectPlatform(service: string): AccountPlatform | null {
   if (normalized.includes("opencode")) return "opencode_go";
   if (normalized.includes("antigravity")) return "antigravity";
   if (normalized.includes("clinepass") || normalized.includes("cline pass")) return "clinepass";
+  if (normalized.includes("openrouter") || normalized.includes("open router")) return "openrouter";
   return null;
 }
 
@@ -118,7 +119,8 @@ function platformLabel(platform: AccountPlatform): string {
   if (platform === "openai") return "OpenAI";
   if (platform === "opencode_go") return "OpenCode Go";
   if (platform === "antigravity") return "Antigravity";
-  return "ClinePass";
+  if (platform === "clinepass") return "ClinePass";
+  return "OpenRouter";
 }
 
 function isEmail(value: string | null | undefined): value is string {

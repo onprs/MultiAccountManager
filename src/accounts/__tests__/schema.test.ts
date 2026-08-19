@@ -20,8 +20,9 @@ const envelope = {
 };
 
 describe("managed account schemas", () => {
-  it("accepts ClinePass as an account platform", () => {
+  it("accepts ClinePass and OpenRouter as account platforms", () => {
     expect(accountPlatformSchema.parse("clinepass")).toBe("clinepass");
+    expect(accountPlatformSchema.parse("openrouter")).toBe("openrouter");
   });
 
   it("accepts the versioned browser-only payload", () => {

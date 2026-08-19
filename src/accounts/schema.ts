@@ -6,6 +6,7 @@ export const accountPlatformSchema = z.enum([
   "opencode_go",
   "antigravity",
   "clinepass",
+  "openrouter",
 ]);
 export type AccountPlatform = z.infer<typeof accountPlatformSchema>;
 

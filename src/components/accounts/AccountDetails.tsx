@@ -29,6 +29,7 @@ const platformLabels = {
   opencode_go: "OpenCode Go",
   antigravity: "Antigravity",
   clinepass: "ClinePass",
+  openrouter: "OpenRouter",
 } as const;
 
 export function AccountDetails({
@@ -150,7 +151,7 @@ export function AccountDetails({
             <FormSection title="账号信息" first>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 <Field label="登录邮箱"><input name="loginEmail" type="email" required maxLength={320} defaultValue={decrypted.loginEmail} className={inputClass} /></Field>
-                <Field label="平台"><select name="platform" defaultValue={account.platform} className={inputClass}><option value="openai">OpenAI</option><option value="opencode_go">OpenCode Go</option><option value="antigravity">Antigravity</option><option value="clinepass">ClinePass</option></select></Field>
+                <Field label="平台"><select name="platform" defaultValue={account.platform} className={inputClass}><option value="openai">OpenAI</option><option value="opencode_go">OpenCode Go</option><option value="antigravity">Antigravity</option><option value="clinepass">ClinePass</option><option value="openrouter">OpenRouter</option></select></Field>
                 <Field label="本地状态"><select name="localStatus" defaultValue={account.localStatus} className={inputClass}><option value="active">使用中</option><option value="archived">已归档</option></select></Field>
               </div>
             </FormSection>

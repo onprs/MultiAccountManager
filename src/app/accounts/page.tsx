@@ -75,7 +75,7 @@ function parseInitialQuery(
   return {
     page: Number.isSafeInteger(parsedPage) && parsedPage > 0 ? parsedPage : 1,
     search: rawSearch.includes("@") ? "" : rawSearch,
-    platform: ["openai", "opencode_go", "antigravity", "clinepass"].includes(rawPlatform)
+    platform: ["openai", "opencode_go", "antigravity", "clinepass", "openrouter"].includes(rawPlatform)
       ? (rawPlatform as AccountManagerInitialQuery["platform"])
       : "",
     localStatus: rawStatus === "archived" ? "archived" : "active",

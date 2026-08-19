@@ -86,6 +86,7 @@ const platformLabels: Record<AccountPlatform, string> = {
   opencode_go: "OpenCode Go",
   antigravity: "Antigravity",
   clinepass: "ClinePass",
+  openrouter: "OpenRouter",
 };
 
 export type AccountManagerInitialQuery = {
@@ -767,7 +768,7 @@ export function AccountManager({
           ariaLabel="平台筛选"
           value={platform}
           onChange={(value) => { setPage(1); setPlatform(value as AccountPlatform | ""); }}
-          options={[['', '全部平台'], ['openai', 'OpenAI'], ['opencode_go', 'OpenCode Go'], ['antigravity', 'Antigravity'], ['clinepass', 'ClinePass']]}
+          options={[['', '全部平台'], ['openai', 'OpenAI'], ['opencode_go', 'OpenCode Go'], ['antigravity', 'Antigravity'], ['clinepass', 'ClinePass'], ['openrouter', 'OpenRouter']]}
         />
         <FilterSelect
           ariaLabel="TOTP 筛选"
@@ -1251,7 +1252,7 @@ function AccountDialog({
             <FormSection title="账号信息" first>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="登录邮箱"><input name="loginEmail" type="email" required autoComplete="off" maxLength={320} className={inputClass} /></Field>
-                <Field label="平台"><select name="platform" className={inputClass} defaultValue="openai"><option value="openai">OpenAI</option><option value="opencode_go">OpenCode Go</option><option value="antigravity">Antigravity</option><option value="clinepass">ClinePass</option></select></Field>
+                <Field label="平台"><select name="platform" className={inputClass} defaultValue="openai"><option value="openai">OpenAI</option><option value="opencode_go">OpenCode Go</option><option value="antigravity">Antigravity</option><option value="clinepass">ClinePass</option><option value="openrouter">OpenRouter</option></select></Field>
               </div>
             </FormSection>
 

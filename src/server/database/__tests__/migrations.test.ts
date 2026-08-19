@@ -25,4 +25,15 @@ describe("database migrations", () => {
     expect(migration?.sql).toContain("'clinepass'");
     expect(migration?.sql).toContain("'{\"version\":7}'::jsonb");
   });
+
+  it("adds OpenRouter to the managed account platform constraint", async () => {
+    const migrations = await expectedMigrationFiles();
+    const migration = migrations.find(
+      (entry) => entry.name === "0007_openrouter_account_platform.sql",
+    );
+
+    expect(migration).toBeDefined();
+    expect(migration?.sql).toContain("'openrouter'");
+    expect(migration?.sql).toContain("'{\"version\":8}'::jsonb");
+  });
 });

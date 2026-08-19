@@ -226,7 +226,8 @@ function platformIssuer(platform: ManagedAccount["platform"]): string {
   if (platform === "openai") return "OpenAI";
   if (platform === "opencode_go") return "OpenCode Go";
   if (platform === "antigravity") return "Antigravity";
-  return "ClinePass";
+  if (platform === "clinepass") return "ClinePass";
+  return "OpenRouter";
 }
 
 function groupCode(code: string): string {
