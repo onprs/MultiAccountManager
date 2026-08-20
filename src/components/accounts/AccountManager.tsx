@@ -35,6 +35,7 @@ import { parseTwoFAuthExport } from "@/accounts/import-2fauth";
 import { parseOpenRouterExport } from "@/accounts/import-openrouter";
 import {
   managedAccountPrivatePayloadSchema,
+  phoneBindingIdentity,
   totpConfigurationSchema,
   type AccountLocalStatus,
   type AccountPlatform,
@@ -143,7 +144,6 @@ export function AccountManager({
   const [otpById, setOtpById] = useState<Record<string, OtpView>>({});
   const [otpErrorRevisionById, setOtpErrorRevisionById] = useState<Record<string, number>>({});
   const [revealedPasswords, setRevealedPasswords] = useState<Record<string, boolean>>({});
-  const [phoneBindingCounts, setPhoneBindingCounts] = useState<Record<string, number>>({});
   const [integrationLinks, setIntegrationLinks] = useState<IntegrationLinkView[] | null>(null);
   const [sub2apiConfigured, setSub2apiConfigured] = useState(false);
   const autoLinkingRef = useRef(false);
@@ -160,6 +160,24 @@ export function AccountManager({
     }
     return grouped;
   }, [integrationLinks]);
+
+  const phoneBindingCounts = useMemo<Record<string, number>>(() => {
+    const phoneById = new Map<string, string>();
+    const idsByPhone = new Map<string, Set<string>>();
+    for (const account of allItems) {
+      const payload = account.decrypted;
+      if (!payload) continue;
+      const phone = phoneBindingIdentity(payload.phone);
+      if (!phone) continue;
+      phoneById.set(account.id, phone);
+      const ids = idsByPhone.get(phone) ?? new Set<string>();
+      ids.add(account.id);
+      idsByPhone.set(phone, ids);
+    }
+    return Object.fromEntries(
+      Array.from(phoneById, ([id, phone]) => [id, idsByPhone.get(phone)?.size ?? 1]),
+    );
+  }, [allItems]);
 
   const sortedItems = useMemo(
     () => sortAccountViews(
@@ -188,6 +206,8 @@ export function AccountManager({
   const allPageSelected = items.length > 0
     && items.every((account) => selectedAccountIds.has(account.id));
   const somePageSelected = items.some((account) => selectedAccountIds.has(account.id));
+  const allFilteredSelected = allItems.length > 0
+    && allItems.every((account) => selectedAccountIds.has(account.id));
 
   const loadIntegrationLinks = useCallback(async () => {
     const result = await api<{ links: IntegrationLinkView[] }>("/api/v1/links");
@@ -211,18 +231,23 @@ export function AccountManager({
         const catalogResult = await api<{ items: RemoteCatalogItem[] }>(
           `/api/v1/remote-catalog?connectionId=${encodeURIComponent(connection.id)}`,
         );
-        const remoteCandidates = await Promise.all(
-          catalogResult.items.map(async (item) => {
-            const email = normalizeRemoteAccountEmail(item.externalName);
-            return {
-              externalAccountId: item.externalAccountId,
-              externalPlatform: item.externalPlatform,
-              emailBlindIndex: email
-                ? await client.blindIndex(email, "managed-account-login-email-v1")
-                : null,
-            };
-          }),
-        );
+        const emails = catalogResult.items.map((item) => normalizeRemoteAccountEmail(item.externalName));
+        const emailIndexes = emails.length
+          ? await client.batchBlindIndex(
+              emails
+                .map((email) => email ? { value: email, context: "managed-account-login-email-v1" } : null)
+                .filter((entry): entry is { value: string; context: string } => Boolean(entry)),
+            )
+          : [];
+        let indexCursor = 0;
+        const remoteCandidates = emails.map((email, idx) => {
+          const item = catalogResult.items[idx]!;
+          return {
+            externalAccountId: item.externalAccountId,
+            externalPlatform: item.externalPlatform,
+            emailBlindIndex: email ? emailIndexes[indexCursor++] ?? null : null,
+          };
+        });
         const connectionLinks = linkResult.links.filter(
           (link) => link.connectionId === connection.id,
         );
@@ -257,29 +282,13 @@ export function AccountManager({
     }
   }, [client, loadIntegrationLinks]);
 
-  const loadPhoneBindingCounts = useCallback(async () => {
-    try {
-      const records = await loadAllManagedAccountRecords(true);
-      setPhoneBindingCounts(
-        await client.countManagedAccountPhoneBindings({
-          ownerUserId,
-          records: records.map((account) => ({
-            id: account.id,
-            envelope: account.privatePayload,
-          })),
-        }),
-      );
-    } catch {
-      setPhoneBindingCounts({});
-    }
-  }, [client, ownerUserId]);
-
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
+      const requestedPage = page;
       const visibleQuery = new URLSearchParams({
-        page: String(page),
+        page: String(requestedPage),
         localStatus,
       });
       if (search) visibleQuery.set("search", search);
@@ -300,38 +309,49 @@ export function AccountManager({
       if (hasTotp) apiQuery.set("hasTotp", hasTotp);
       if (emailBlindIndex) apiQuery.set("emailBlindIndex", emailBlindIndex);
 
-      const accounts: ManagedAccount[] = [];
-      let currentPage = 1;
-      let apiPages = 1;
-      let resultTotal = 0;
-      do {
-        apiQuery.set("page", String(currentPage));
-        const result = await api<AccountList>(
-          `/api/v1/accounts?${apiQuery.toString()}`,
+      apiQuery.set("page", "1");
+      const firstPage = await api<AccountList>(`/api/v1/accounts?${apiQuery.toString()}`);
+      const resultTotal = firstPage.total;
+      const apiPages = firstPage.pages;
+      const accounts: ManagedAccount[] = [...firstPage.items];
+      if (apiPages > 1) {
+        const remaining = await Promise.all(
+          Array.from({ length: apiPages - 1 }, (_, index) => {
+            const params = new URLSearchParams(apiQuery);
+            params.set("page", String(index + 2));
+            return api<AccountList>(`/api/v1/accounts?${params.toString()}`);
+          }),
         );
-        accounts.push(...result.items);
-        resultTotal = result.total;
-        apiPages = result.pages;
-        currentPage += 1;
-      } while (currentPage <= apiPages);
+        for (const pageResult of remaining) accounts.push(...pageResult.items);
+      }
 
-      const decrypted = await Promise.all(
-        accounts.map(async (account): Promise<AccountView> => {
-          try {
-            const payload = managedAccountPrivatePayloadSchema.parse(
-              await client.decryptRecord({
-                ownerUserId,
-                recordType: "managed-account-private-v1",
-                recordId: account.id,
-                envelope: account.privatePayload,
-              }),
-            );
-            return { ...account, decrypted: payload };
-          } catch {
-            return { ...account, decrypted: null };
-          }
-        }),
-      );
+      let decrypted: AccountView[];
+      if (!accounts.length) {
+        decrypted = [];
+      } else {
+        try {
+          const rawPayloads = await client.decryptRecords<ManagedAccountPrivatePayload>({
+            ownerUserId,
+            recordType: "managed-account-private-v1",
+            records: accounts.map((account) => ({
+              recordId: account.id,
+              envelope: account.privatePayload,
+            })),
+          });
+          decrypted = accounts.map((account, index) => {
+            const raw = rawPayloads[index];
+            if (!raw) return { ...account, decrypted: null };
+            try {
+              const payload = managedAccountPrivatePayloadSchema.parse(raw);
+              return { ...account, decrypted: payload };
+            } catch {
+              return { ...account, decrypted: null };
+            }
+          });
+        } catch {
+          decrypted = accounts.map((account) => ({ ...account, decrypted: null }));
+        }
+      }
       const displayPages = Math.max(1, Math.ceil(resultTotal / accountPageSize));
       const availableIds = new Set(decrypted.map((account) => account.id));
       setAllItems(decrypted);
@@ -341,13 +361,15 @@ export function AccountManager({
       setRevealedPasswords({});
       setTotal(resultTotal);
       setPages(displayPages);
-      if (page > displayPages) setPage(displayPages);
+      if (requestedPage > displayPages) setPage(displayPages);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "账号列表加载失败");
     } finally {
       setLoading(false);
     }
-  }, [client, emailBlindIndex, hasTotp, localStatus, ownerUserId, page, platform, search]);
+  // 读取 page 仅用于展示 URL，页面切换已在本地完成，无需以 page 作为数据请求依赖
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client, emailBlindIndex, hasTotp, localStatus, ownerUserId, platform, search]);
 
   const generateAccountOtps = useCallback(async (accounts: AccountView[]) => {
     const targets = accounts.filter((account) => {
@@ -374,9 +396,64 @@ export function AccountManager({
       timestamp += serverClockOffsetRef.current;
     }
 
-    const generated: Array<{ account: AccountView; result: TotpResult }> = [];
-    const failed: AccountView[] = [];
+    let succeededById: Map<string, TotpResult> | null = null;
+    let failedIds: Set<string> | null = null;
     try {
+      const results = await client.batchGenerateRecordTotp({
+        ownerUserId,
+        records: targets.map((account) => ({ recordId: account.id, envelope: account.privatePayload })),
+        timestamp,
+      });
+      succeededById = new Map<string, TotpResult>();
+      failedIds = new Set<string>();
+      for (let index = 0; index < targets.length; index += 1) {
+        const account = targets[index]!;
+        const result = results[index];
+        if (result) succeededById.set(account.id, result);
+        else failedIds.add(account.id);
+      }
+
+      if (succeededById.size) {
+        const maxGeneratedAt = Math.max(...Array.from(succeededById.values(), (result) => result.generatedAt));
+        setNow(maxGeneratedAt);
+        setOtpById((current) => {
+          const next = { ...current };
+          for (const account of targets) {
+            const result = succeededById!.get(account.id);
+            if (!result) continue;
+            next[account.id] = {
+              ...result,
+              accountRevision: account.revision,
+              expiresAt:
+                result.generatedAt - (result.generatedAt % 1_000)
+                + result.secondsRemaining * 1_000,
+            };
+          }
+          return next;
+        });
+      }
+      if (failedIds.size) {
+        const failedById = new Map(targets.map((account) => [account.id, account] as const));
+        setOtpErrorRevisionById((current) => {
+          const next = { ...current };
+          for (const [id] of succeededById!) delete next[id];
+          for (const id of failedIds!) {
+            const account = failedById.get(id);
+            if (account) next[id] = account.revision;
+          }
+          return next;
+        });
+      } else if (succeededById.size) {
+        setOtpErrorRevisionById((current) => {
+          const next = { ...current };
+          for (const id of succeededById!.keys()) delete next[id];
+          return next;
+        });
+      }
+    } catch {
+      // 批量失败时回退为单条生成，保证单条损坏不影响其余
+      const generated: Array<{ account: AccountView; result: TotpResult }> = [];
+      const failed: AccountView[] = [];
       await Promise.all(targets.map(async (account) => {
         try {
           generated.push({
@@ -392,7 +469,6 @@ export function AccountManager({
           failed.push(account);
         }
       }));
-
       if (generated.length) {
         setNow(Math.max(...generated.map(({ result }) => result.generatedAt)));
         setOtpById((current) => {
@@ -424,11 +500,6 @@ export function AccountManager({
     const pending = window.setTimeout(() => void load(), 0);
     return () => clearTimeout(pending);
   }, [load]);
-
-  useEffect(() => {
-    const pending = window.setTimeout(() => void loadPhoneBindingCounts(), 0);
-    return () => clearTimeout(pending);
-  }, [loadPhoneBindingCounts]);
 
   useEffect(() => {
     const pending = window.setTimeout(
@@ -574,7 +645,7 @@ export function AccountManager({
       form.reset();
       setDialogOpen(false);
       setPage(1);
-      await Promise.all([load(), loadPhoneBindingCounts(), autoLinkSub2apiAccounts()]);
+      await Promise.all([load(), autoLinkSub2apiAccounts()]);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "账号保存失败");
     } finally {
@@ -662,7 +733,7 @@ export function AccountManager({
         `OpenRouter 账号: 已导入 ${imported} 个；跳过 ${parsed.errors.length} 个；保存失败 ${saveFailures} 个`,
       );
       setPage(1);
-      await Promise.all([load(), loadPhoneBindingCounts(), autoLinkSub2apiAccounts()]);
+      await Promise.all([load(), autoLinkSub2apiAccounts()]);
     } catch {
       setError("OpenRouter accounts.json 无法解析");
     } finally {
@@ -697,7 +768,7 @@ export function AccountManager({
         `已导入 ${imported} 个；跳过 ${parsed.errors.length} 个；保存失败 ${saveFailures} 个`,
       );
       setPage(1);
-      await Promise.all([load(), loadPhoneBindingCounts(), autoLinkSub2apiAccounts()]);
+      await Promise.all([load(), autoLinkSub2apiAccounts()]);
     } catch {
       setError("2FAuth JSON 无法解析");
     } finally {
@@ -759,6 +830,15 @@ export function AccountManager({
     });
   }
 
+  function toggleAllFilteredSelection() {
+    setSelectedAccountIds((current) => {
+      const allIds = allItems.map((account) => account.id);
+      const isAllSelected = allIds.length > 0 && allIds.every((id) => current.has(id));
+      if (isAllSelected) return new Set<string>();
+      return new Set(allIds);
+    });
+  }
+
   async function changeSelectedLocalStatus(nextStatus: AccountLocalStatus) {
     if (!selectedAccounts.length) return;
     setBulkBusy(true);
@@ -788,7 +868,7 @@ export function AccountManager({
     }
     setSelectedAccountIds(new Set());
     const summary = `${nextStatus === "archived" ? "归档" : "恢复"}完成：成功 ${succeeded} 个，失败 ${failed} 个`;
-    await Promise.all([load(), loadPhoneBindingCounts(), autoLinkSub2apiAccounts()]);
+    await Promise.all([load(), autoLinkSub2apiAccounts()]);
     if (failed) setError(summary);
     else setOperationStatus(summary);
     setBulkBusy(false);
@@ -820,7 +900,7 @@ export function AccountManager({
     setPendingBulkAction(null);
     setSelectedAccountIds(new Set());
     const summary = `删除完成：成功 ${succeeded} 个，失败 ${failed} 个`;
-    await Promise.all([load(), loadPhoneBindingCounts(), autoLinkSub2apiAccounts()]);
+    await Promise.all([load(), autoLinkSub2apiAccounts()]);
     if (failed) {
       const firstFailure = failureMessages.values().next().value;
       setError(firstFailure ? `${summary}；${firstFailure}` : summary);
@@ -886,7 +966,16 @@ export function AccountManager({
       ) : null}
       {selectedAccounts.length ? (
         <div className="mb-4 flex min-h-11 flex-wrap items-center gap-2 border-y border-[var(--border)] bg-[var(--surface-subtle)] px-3 py-2">
-          <span className="mr-auto text-sm font-semibold">已选 {selectedAccounts.length} 个</span>
+          <span className="mr-auto text-sm font-semibold">
+            {allFilteredSelected
+              ? `已全选全部 ${allItems.length} 个`
+              : `已选 ${selectedAccounts.length} 个${allItems.length > selectedAccounts.length ? `，筛选共 ${allItems.length} 个` : ""}`}
+          </span>
+          {!allFilteredSelected && allItems.length > selectedAccounts.length && allItems.length > items.length ? (
+            <button type="button" disabled={bulkBusy || !allItems.length} onClick={toggleAllFilteredSelection} className={listActionButton}>
+              全选全部 {allItems.length} 个
+            </button>
+          ) : null}
           {localStatus === "active" ? (
             <button type="button" disabled={bulkBusy} onClick={() => void changeSelectedLocalStatus("archived")} className={listActionButton}>
               <Archive aria-hidden="true" size={14} />归档
@@ -1072,7 +1161,7 @@ export function AccountManager({
           onClose={() => setSelected(null)}
           onChanged={async () => {
             setSelected(null);
-            await Promise.all([load(), loadPhoneBindingCounts(), autoLinkSub2apiAccounts()]);
+            await Promise.all([load(), autoLinkSub2apiAccounts()]);
           }}
         />
       ) : null}
@@ -1474,27 +1563,40 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
   return body;
 }
 
+async function fetchAllAccountPages(
+  baseParams: URLSearchParams,
+): Promise<ManagedAccount[]> {
+  const firstParams = new URLSearchParams(baseParams);
+  firstParams.set("page", "1");
+  const first = await api<AccountList>(`/api/v1/accounts?${firstParams.toString()}`);
+  if (first.pages <= 1) return [...first.items];
+  const remaining = await Promise.all(
+    Array.from({ length: first.pages - 1 }, (_, index) => {
+      const params = new URLSearchParams(baseParams);
+      params.set("page", String(index + 2));
+      return api<AccountList>(`/api/v1/accounts?${params.toString()}`);
+    }),
+  );
+  const accounts: ManagedAccount[] = [...first.items];
+  for (const page of remaining) accounts.push(...page.items);
+  return accounts;
+}
+
 async function loadAllManagedAccountRecords(
   includeDeleted = false,
 ): Promise<ManagedAccount[]> {
-  const accounts: ManagedAccount[] = [];
-  for (const status of ["active", "archived"] satisfies AccountLocalStatus[]) {
-    let currentPage = 1;
-    let pageCount = 1;
-    do {
-      const query = new URLSearchParams({
-        page: String(currentPage),
+  const statuses: AccountLocalStatus[] = ["active", "archived"];
+  const results = await Promise.all(
+    statuses.map((localStatus) => {
+      const params = new URLSearchParams({
         pageSize: "100",
-        localStatus: status,
+        localStatus,
       });
-      if (includeDeleted) query.set("includeDeleted", "true");
-      const result = await api<AccountList>(`/api/v1/accounts?${query.toString()}`);
-      accounts.push(...result.items);
-      pageCount = result.pages;
-      currentPage += 1;
-    } while (currentPage <= pageCount);
-  }
-  return accounts;
+      if (includeDeleted) params.set("includeDeleted", "true");
+      return fetchAllAccountPages(params);
+    }),
+  );
+  return results.flat();
 }
 
 function sortAccountViews(

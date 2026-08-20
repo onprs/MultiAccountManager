@@ -5,6 +5,7 @@ import {
   managedAccountPrivatePayloadSchema,
   phoneBindingIdentity,
   totpConfigurationSchema,
+  type ManagedAccountPrivatePayload,
   type TotpConfiguration,
   type TotpResult,
 } from "@/accounts/schema";
@@ -413,22 +414,52 @@ export class VaultCryptoSession {
     }
   }
 
+  async decryptRecords<T>(input: {
+    ownerUserId: string;
+    recordType: string;
+    records: Array<{ recordId: string; envelope: EncryptedEnvelope }>;
+  }): Promise<Array<T | null>> {
+    await sodium.ready;
+    const dataKey = this.requireDataKey();
+    return input.records.map((record) => {
+      try {
+        const plaintext = openEnvelope(
+          record.envelope,
+          dataKey,
+          createRecordAad(input.ownerUserId, input.recordType, record.recordId),
+          DATA_KEY_ID,
+        );
+        try {
+          return JSON.parse(decoder.decode(plaintext)) as T;
+        } finally {
+          sodium.memzero(plaintext);
+        }
+      } catch {
+        return null;
+      }
+    });
+  }
+
   async countManagedAccountPhoneBindings(input: {
     ownerUserId: string;
     records: Array<{ id: string; envelope: EncryptedEnvelope }>;
   }): Promise<Record<string, number>> {
+    const decryptedPayloads = await this.decryptRecords<ManagedAccountPrivatePayload>({
+      ownerUserId: input.ownerUserId,
+      recordType: "managed-account-private-v1",
+      records: input.records.map((record) => ({
+        recordId: record.id,
+        envelope: record.envelope,
+      })),
+    });
     const currentPhoneByRecordId = new Map<string, string>();
     const recordIdsByPhone = new Map<string, Set<string>>();
-    for (const record of input.records) {
+    for (let index = 0; index < input.records.length; index += 1) {
+      const record = input.records[index]!;
+      const payloadRaw = decryptedPayloads[index];
+      if (!payloadRaw) continue;
       try {
-        const payload = managedAccountPrivatePayloadSchema.parse(
-          await this.decryptRecord({
-            ownerUserId: input.ownerUserId,
-            recordType: "managed-account-private-v1",
-            recordId: record.id,
-            envelope: record.envelope,
-          }),
-        );
+        const payload = managedAccountPrivatePayloadSchema.parse(payloadRaw);
         const currentPhone = phoneBindingIdentity(payload.phone);
         if (!currentPhone) continue;
 
@@ -514,6 +545,30 @@ export class VaultCryptoSession {
     return this.generateTotp(payload.totp, input.timestamp);
   }
 
+  async batchGenerateRecordTotp(input: {
+    ownerUserId: string;
+    recordType?: string;
+    records: Array<{ recordId: string; envelope: EncryptedEnvelope }>;
+    timestamp?: number;
+  }): Promise<Array<TotpResult | null>> {
+    const recordType = input.recordType ?? "managed-account-private-v1";
+    const payloads = await this.decryptRecords<ManagedAccountPrivatePayload>({
+      ownerUserId: input.ownerUserId,
+      recordType,
+      records: input.records,
+    });
+    return payloads.map((payloadRaw) => {
+      if (!payloadRaw) return null;
+      try {
+        const payload = managedAccountPrivatePayloadSchema.parse(payloadRaw);
+        if (!payload.totp) return null;
+        return this.generateTotp(payload.totp, input.timestamp);
+      } catch {
+        return null;
+      }
+    });
+  }
+
   async blindIndex(
     value: string,
     context: string,
@@ -530,6 +585,27 @@ export class VaultCryptoSession {
     } finally {
       sodium.memzero(message);
     }
+  }
+
+  async batchBlindIndex(
+    inputs: Array<{ value: string; context: string; normalization?: "case-fold" | "exact" }>,
+  ): Promise<string[]> {
+    await sodium.ready;
+    const indexKey = this.requireIndexKey();
+    return inputs.map((input) => {
+      const canonical = input.value.normalize("NFKC").trim();
+      const normalized = (input.normalization ?? "case-fold") === "case-fold"
+        ? canonical.toLowerCase()
+        : canonical;
+      const message = encoder.encode(
+        JSON.stringify(["account-vault", "blind-index-v1", input.context, normalized]),
+      );
+      try {
+        return base64Url(sodium.crypto_generichash(32, message, indexKey));
+      } finally {
+        sodium.memzero(message);
+      }
+    });
   }
 
   lock(): void {

@@ -99,6 +99,14 @@ export class VaultCryptoClient {
     return this.request({ type: "decrypt-record", ...input }, true) as Promise<T>;
   }
 
+  decryptRecords<T>(input: {
+    ownerUserId: string;
+    recordType: string;
+    records: Array<{ recordId: string; envelope: EncryptedEnvelope }>;
+  }): Promise<Array<T | null>> {
+    return this.request({ type: "decrypt-records", ...input }, true) as Promise<Array<T | null>>;
+  }
+
   countManagedAccountPhoneBindings(input: {
     ownerUserId: string;
     records: ManagedAccountPhoneBindingRecord[];
@@ -118,6 +126,16 @@ export class VaultCryptoClient {
       { type: "blind-index", value, context, normalization },
       true,
     ) as Promise<string>;
+  }
+
+  batchBlindIndex(
+    inputs: Array<{ value: string; context: string; normalization?: "case-fold" | "exact" }>,
+  ): Promise<string[]> {
+    if (!inputs.length) return Promise.resolve([]);
+    return this.request(
+      { type: "batch-blind-index", inputs },
+      true,
+    ) as Promise<string[]>;
   }
 
   parseTotpUri(uri: string): Promise<TotpConfiguration> {
@@ -144,6 +162,18 @@ export class VaultCryptoClient {
       { type: "generate-record-totp", ...input },
       true,
     ) as Promise<TotpResult>;
+  }
+
+  batchGenerateRecordTotp(input: {
+    ownerUserId: string;
+    records: Array<{ recordId: string; envelope: EncryptedEnvelope }>;
+    timestamp?: number;
+  }): Promise<Array<TotpResult | null>> {
+    if (!input.records.length) return Promise.resolve([]);
+    return this.request(
+      { type: "batch-generate-record-totp", ...input },
+      true,
+    ) as Promise<Array<TotpResult | null>>;
   }
 
   async lock(): Promise<void> {

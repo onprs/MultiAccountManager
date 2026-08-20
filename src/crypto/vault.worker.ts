@@ -35,6 +35,8 @@ async function handle(request: VaultWorkerRequest): Promise<VaultWorkerResult> {
       return session.encryptRecord(request);
     case "decrypt-record":
       return session.decryptRecord(request);
+    case "decrypt-records":
+      return session.decryptRecords(request);
     case "count-managed-account-phone-bindings":
       return session.countManagedAccountPhoneBindings(request);
     case "blind-index":
@@ -43,12 +45,22 @@ async function handle(request: VaultWorkerRequest): Promise<VaultWorkerResult> {
         request.context,
         request.normalization,
       );
+    case "batch-blind-index":
+      return session.batchBlindIndex(
+        request.inputs.map((input) => ({
+          value: input.value,
+          context: input.context,
+          normalization: input.normalization ?? "case-fold",
+        })),
+      );
     case "parse-totp-uri":
       return session.parseTotpUri(request.uri);
     case "preview-totp":
       return session.generateTotp(request.configuration, request.timestamp);
     case "generate-record-totp":
       return session.generateRecordTotp(request);
+    case "batch-generate-record-totp":
+      return session.batchGenerateRecordTotp(request);
     case "status":
       return { unlocked: session.isUnlocked() };
     case "lock":

@@ -20,6 +20,11 @@ export type VaultWorkerRequest =
   | { id: string; type: "benchmark-kdf" }
   | {
       id: string;
+      type: "batch-blind-index";
+      inputs: Array<{ value: string; context: string; normalization?: "case-fold" | "exact" }>;
+    }
+  | {
+      id: string;
       type: "initialize";
       ownerUserId: string;
       vaultId: string;
@@ -54,6 +59,13 @@ export type VaultWorkerRequest =
     }
   | {
       id: string;
+      type: "decrypt-records";
+      ownerUserId: string;
+      recordType: string;
+      records: Array<{ recordId: string; envelope: EncryptedEnvelope }>;
+    }
+  | {
+      id: string;
       type: "count-managed-account-phone-bindings";
       ownerUserId: string;
       records: ManagedAccountPhoneBindingRecord[];
@@ -80,6 +92,13 @@ export type VaultWorkerRequest =
       envelope: EncryptedEnvelope;
       timestamp?: number;
     }
+  | {
+      id: string;
+      type: "batch-generate-record-totp";
+      ownerUserId: string;
+      records: Array<{ recordId: string; envelope: EncryptedEnvelope }>;
+      timestamp?: number;
+    }
   | { id: string; type: "status" }
   | { id: string; type: "lock" };
 
@@ -99,6 +118,9 @@ export type VaultWorkerResult =
       recoveryKey: string;
     }
   | EncryptedEnvelope
+  | Array<string>
+  | Array<unknown | null>
+  | Array<TotpResult | null>
   | TotpConfiguration
   | TotpResult
   | ManagedAccountPhoneBindingCounts
