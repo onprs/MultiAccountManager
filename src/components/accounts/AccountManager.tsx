@@ -137,10 +137,11 @@ export function AccountManager({
   const [selectedAccountIds, setSelectedAccountIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+    const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [pendingBulkAction, setPendingBulkAction] =
     useState<PendingBulkAction | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
   const [otpById, setOtpById] = useState<Record<string, OtpView>>({});
   const [otpErrorRevisionById, setOtpErrorRevisionById] = useState<Record<string, number>>({});
   const [revealedPasswords, setRevealedPasswords] = useState<Record<string, boolean>>({});
@@ -844,67 +845,171 @@ export function AccountManager({
     setBulkBusy(true);
     setError(null);
     setOperationStatus(null);
+    setBulkProgress({ done: 0, total: selectedAccounts.length });
     let succeeded = 0;
     let failed = 0;
-    for (const account of selectedAccounts) {
+    const firstFailures: Array<{ id: string; code?: string; message?: string }> = [];
+    const batchSize = 200;
+    for (let offset = 0; offset < selectedAccounts.length; offset += batchSize) {
+      const chunk = selectedAccounts.slice(offset, offset + batchSize);
+      // 优先走批量接口（一次请求最多 200 条，服务端单事务 + 单次审计），显著减少 N 次往返与前端串行卡顿
       try {
-        await api(`/api/v1/accounts/${encodeURIComponent(account.id)}`, {
-          method: "PATCH",
+        const result = await api<{
+          results: Array<{ id: string; status: string; code?: string; message?: string }>;
+          succeeded: number;
+          failed: number;
+        }>("/api/v1/accounts/batch/update", {
+          method: "POST",
           body: JSON.stringify({
-            expectedRevision: account.revision,
-            platform: account.platform,
-            displayName: account.displayName,
-            privatePayload: account.privatePayload,
-            emailBlindIndex: account.emailBlindIndex,
-            emailDomainBlindIndex: account.emailDomainBlindIndex,
-            hasTotp: account.hasTotp,
+            updates: chunk.map((account) => ({
+              id: account.id,
+              expectedRevision: account.revision,
+            })),
             localStatus: nextStatus,
           }),
         });
-        succeeded += 1;
+        succeeded += result.succeeded;
+        failed += result.failed;
+        for (const entry of result.results.filter((item) => item.status === "failed").slice(0, 3)) {
+          firstFailures.push(entry);
+        }
       } catch {
-        failed += 1;
+        // 批量失败时回退为串行单条，保证兼容与可观测
+        for (const account of chunk) {
+          try {
+            await api(`/api/v1/accounts/${encodeURIComponent(account.id)}`, {
+              method: "PATCH",
+              body: JSON.stringify({
+                expectedRevision: account.revision,
+                platform: account.platform,
+                displayName: account.displayName,
+                privatePayload: account.privatePayload,
+                emailBlindIndex: account.emailBlindIndex,
+                emailDomainBlindIndex: account.emailDomainBlindIndex,
+                hasTotp: account.hasTotp,
+                localStatus: nextStatus,
+              }),
+            });
+            succeeded += 1;
+          } catch (caught) {
+            failed += 1;
+            if (firstFailures.length < 3) {
+              firstFailures.push({
+                id: account.id,
+                message: caught instanceof Error ? caught.message : undefined,
+              });
+            }
+          }
+        }
       }
+      setBulkProgress({ done: Math.min(offset + chunk.length, selectedAccounts.length), total: selectedAccounts.length });
     }
     setSelectedAccountIds(new Set());
     const summary = `${nextStatus === "archived" ? "归档" : "恢复"}完成：成功 ${succeeded} 个，失败 ${failed} 个`;
+    const detail = firstFailures.length
+      ? `；失败示例：${firstFailures.map((entry) => entry.code ?? entry.message ?? entry.id).join("、")}`
+      : "";
     await Promise.all([load(), autoLinkSub2apiAccounts()]);
-    if (failed) setError(summary);
+    if (failed) setError(summary + detail);
     else setOperationStatus(summary);
+    setBulkProgress(null);
     setBulkBusy(false);
+  }
+
+  async function runWithConcurrency<T, R>(
+    items: T[],
+    limit: number,
+    fn: (item: T) => Promise<R>,
+  ): Promise<Array<PromiseSettledResult<R>>> {
+    const results: Array<PromiseSettledResult<R>> = new Array(items.length);
+    let nextIndex = 0;
+    const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (true) {
+        const current = nextIndex++;
+        if (current >= items.length) break;
+        try {
+          const value = await fn(items[current]!);
+          results[current] = { status: "fulfilled", value };
+        } catch (reason) {
+          results[current] = { status: "rejected", reason };
+        }
+      }
+    });
+    await Promise.all(workers);
+    return results;
   }
 
   async function confirmDeleteSelected() {
     if (!pendingBulkAction) return;
-    const targets = allItems.filter((account) =>
-      pendingBulkAction.accountIds.includes(account.id),
-    );
+    const byId = new Map(allItems.map((account) => [account.id, account] as const));
+    const targets = pendingBulkAction.accountIds
+      .map((id) => byId.get(id))
+      .filter((account): account is AccountView => Boolean(account));
+    const missing = pendingBulkAction.accountIds.length - targets.length;
     setBulkBusy(true);
     setError(null);
     setOperationStatus(null);
+    setBulkProgress({ done: 0, total: targets.length });
     let succeeded = 0;
-    let failed = 0;
+    let failed = missing;
     const failureMessages = new Set<string>();
-    for (const account of targets) {
+    if (missing) failureMessages.add("部分账号已不存在或已被删除");
+    const batchSize = 100;
+    for (let offset = 0; offset < targets.length; offset += batchSize) {
+      const chunk = targets.slice(offset, offset + batchSize);
+      // 批量删除：服务端先在一次事务前校验 revision、批量拉取关联的 observer 链接，
+      // 远端同步删除按 10 并发执行，后续本地软删/解链在同一事务内批量提交，避免逐条往返与事务分散导致的卡顿与超时
       try {
-        await api(`/api/v1/accounts/${encodeURIComponent(account.id)}`, {
-          method: "DELETE",
-          body: JSON.stringify({ expectedRevision: account.revision }),
+        const result = await api<{
+          results: Array<{ id: string; status: string; code?: string; message?: string }>;
+          succeeded: number;
+          failed: number;
+        }>("/api/v1/accounts/batch/delete", {
+          method: "POST",
+          body: JSON.stringify({
+            deletes: chunk.map((account) => ({
+              id: account.id,
+              expectedRevision: account.revision,
+            })),
+          }),
         });
-        succeeded += 1;
+        succeeded += result.succeeded;
+        failed += result.failed;
+        for (const entry of result.results.filter((item) => item.status === "failed").slice(0, 5)) {
+          failureMessages.add(entry.message ?? entry.code ?? entry.id);
+        }
       } catch (caught) {
-        failed += 1;
-        failureMessages.add(caught instanceof Error ? caught.message : "账号删除失败");
+        // 回退：批量接口不可用时以较小并发执行单条删除，仍展示进度
+        const step = await runWithConcurrency(chunk, 6, async (account) => {
+          await api(`/api/v1/accounts/${encodeURIComponent(account.id)}`, {
+            method: "DELETE",
+            body: JSON.stringify({ expectedRevision: account.revision }),
+          });
+        });
+        for (const outcome of step) {
+          if (outcome.status === "fulfilled") succeeded += 1;
+          else {
+            failed += 1;
+            const message =
+              outcome.reason instanceof Error ? outcome.reason.message : "账号删除失败";
+            failureMessages.add(message);
+          }
+        }
+        if (caught instanceof Error && failureMessages.size < 5) {
+          failureMessages.add(caught.message);
+        }
       }
+      setBulkProgress({ done: Math.min(offset + chunk.length, targets.length), total: targets.length });
     }
     setPendingBulkAction(null);
     setSelectedAccountIds(new Set());
     const summary = `删除完成：成功 ${succeeded} 个，失败 ${failed} 个`;
     await Promise.all([load(), autoLinkSub2apiAccounts()]);
     if (failed) {
-      const firstFailure = failureMessages.values().next().value;
-      setError(firstFailure ? `${summary}；${firstFailure}` : summary);
+      const details = Array.from(failureMessages).slice(0, 3).join("；");
+      setError(details ? `${summary}；${details}` : summary);
     } else setOperationStatus(summary);
+    setBulkProgress(null);
     setBulkBusy(false);
   }
 
@@ -963,6 +1068,16 @@ export function AccountManager({
         <p className="mb-4 border-l-4 border-emerald-600 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">
           {operationStatus}
         </p>
+      ) : null}
+      {bulkProgress ? (
+        <div className="mb-4 flex min-h-11 flex-wrap items-center gap-3 border-y border-[var(--border)] bg-[var(--surface-subtle)] px-3 py-2" role="status" aria-live="polite">
+          <LoaderCircle className="animate-spin" aria-hidden="true" size={16} />
+          <span className="text-sm font-semibold">正在处理 {bulkProgress.done}/{bulkProgress.total} 个账号</span>
+          <span className="h-1.5 w-32 overflow-hidden rounded bg-[var(--border)]" aria-hidden="true">
+            <span className="block h-full bg-[var(--accent)]" style={{ width: `${Math.round((bulkProgress.done / Math.max(1, bulkProgress.total)) * 100)}%` }} />
+          </span>
+          <span className="text-xs text-[var(--muted)]">{Math.round((bulkProgress.done / Math.max(1, bulkProgress.total)) * 100)}%</span>
+        </div>
       ) : null}
       {selectedAccounts.length ? (
         <div className="mb-4 flex min-h-11 flex-wrap items-center gap-2 border-y border-[var(--border)] bg-[var(--surface-subtle)] px-3 py-2">

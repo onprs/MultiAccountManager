@@ -550,6 +550,395 @@ export async function deleteManagedAccount(input: {
   }
 }
 
+export type BatchDeleteResult = {
+  results: Array<{
+    id: string;
+    status: "success" | "failed";
+    code?: string;
+    message?: string;
+  }>;
+  succeeded: number;
+  failed: number;
+};
+
+export type BatchUpdateResult = {
+  results: Array<{
+    id: string;
+    status: "success" | "failed";
+    code?: string;
+    message?: string;
+  }>;
+  succeeded: number;
+  failed: number;
+};
+
+async function runWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<Array<PromiseSettledResult<R>>> {
+  const results: Array<PromiseSettledResult<R>> = new Array(items.length);
+  let index = 0;
+  const workers = Array.from(
+    { length: Math.min(limit, items.length) },
+    async () => {
+      while (true) {
+        const current = index++;
+        if (current >= items.length) break;
+        try {
+          const value = await fn(items[current]!);
+          results[current] = { status: "fulfilled", value };
+        } catch (reason) {
+          results[current] = { status: "rejected", reason };
+        }
+      }
+    },
+  );
+  await Promise.all(workers);
+  return results;
+}
+
+export async function batchDeleteManagedAccounts(input: {
+  ownerUserId: string;
+  deletes: Array<{ id: string; expectedRevision: number }>;
+  requestId?: string;
+}): Promise<BatchDeleteResult> {
+  if (!input.deletes.length) {
+    return { results: [], succeeded: 0, failed: 0 };
+  }
+  const config = await readRuntimeConfig();
+  const sql = createDatabaseClient(config.database, { max: 1 });
+  try {
+    const ids = input.deletes.map((item) => item.id);
+    const existingRows = ids.length
+      ? await sql<Array<{ id: string; revision: number }>>`
+          select id, revision from managed_accounts
+          where owner_user_id = ${input.ownerUserId}
+            and id in ${sql(ids)}
+            and deleted_at is null
+        `
+      : [];
+    const existingMap = new Map(existingRows.map((row) => [row.id, row.revision]));
+    const results: BatchDeleteResult["results"] = [];
+    const preliminarySucceeded: Array<{ id: string; expectedRevision: number }> = [];
+    for (const item of input.deletes) {
+      const current = existingMap.get(item.id);
+      if (current === undefined) {
+        results.push({
+          id: item.id,
+          status: "failed",
+          code: "ACCOUNT_NOT_FOUND",
+          message: "Account not found or already deleted",
+        });
+      } else if (current !== item.expectedRevision) {
+        results.push({
+          id: item.id,
+          status: "failed",
+          code: "ACCOUNT_REVISION_CONFLICT",
+          message: "Account changed in another session or no longer exists",
+        });
+      } else {
+        preliminarySucceeded.push(item);
+      }
+    }
+    if (!preliminarySucceeded.length) {
+      return {
+        results: input.deletes.map((item) => results.find((entry) => entry.id === item.id)!),
+        succeeded: 0,
+        failed: results.length,
+      };
+    }
+
+    const succIds = preliminarySucceeded.map((item) => item.id);
+    const linkRows = succIds.length
+      ? await sql<Array<{
+          managedAccountId: string;
+          connectionId: string;
+          baseUrl: string;
+          externalAccountId: string;
+          tokenCiphertext: ServiceCiphertext;
+        }>>`
+          select
+            link.managed_account_id as "managedAccountId",
+            conn.id as "connectionId",
+            conn.base_url as "baseUrl",
+            link.external_account_id as "externalAccountId",
+            conn.token_ciphertext as "tokenCiphertext"
+          from sub2api_account_links link
+          join sub2api_connections conn
+            on conn.id = link.connection_id
+            and conn.owner_user_id = ${input.ownerUserId}
+          where link.managed_account_id in ${sql(succIds)}
+            and link.owner_user_id = ${input.ownerUserId}
+          order by link.managed_account_id, conn.id
+        `
+      : [];
+
+    const connectionIds = [...new Set(linkRows.map((row) => row.connectionId))];
+    const tokenByConnection = new Map<string, string>();
+    const decryptFailConnections = new Set<string>();
+    for (const connectionId of connectionIds) {
+      const sample = linkRows.find((row) => row.connectionId === connectionId)!;
+      try {
+        const token = await decryptServiceToken({
+          connectionId,
+          ownerUserId: input.ownerUserId,
+          envelope: serviceCiphertextSchema.parse(sample.tokenCiphertext),
+          config,
+        });
+        tokenByConnection.set(connectionId, token);
+      } catch {
+        decryptFailConnections.add(connectionId);
+      }
+    }
+
+    const targetsByAccount = new Map<
+      string,
+      Array<{ baseUrl: string; token: string; accountId: string; connectionId: string }>
+    >();
+    const decryptFailAccounts = new Set<string>();
+    for (const row of linkRows) {
+      const token = tokenByConnection.get(row.connectionId);
+      if (!token) {
+        decryptFailAccounts.add(row.managedAccountId);
+        continue;
+      }
+      const list = targetsByAccount.get(row.managedAccountId) ?? [];
+      list.push({
+        baseUrl: row.baseUrl,
+        token,
+        accountId: row.externalAccountId,
+        connectionId: row.connectionId,
+      });
+      targetsByAccount.set(row.managedAccountId, list);
+    }
+    for (const accountId of decryptFailAccounts) {
+      results.push({
+        id: accountId,
+        status: "failed",
+        code: "SUB2API_DELETE_CREDENTIAL_UNAVAILABLE",
+        message: "Sub2API deletion credential is unavailable",
+      });
+    }
+
+    const afterDecryptSucceeded = preliminarySucceeded.filter(
+      (item) => !decryptFailAccounts.has(item.id),
+    );
+
+    const remoteTargets: Array<{
+      managedAccountId: string;
+      baseUrl: string;
+      token: string;
+      accountId: string;
+    }> = [];
+    for (const item of afterDecryptSucceeded) {
+      const targets = targetsByAccount.get(item.id) ?? [];
+      for (const target of targets) {
+        remoteTargets.push({
+          managedAccountId: item.id,
+          baseUrl: target.baseUrl,
+          token: target.token,
+          accountId: target.accountId,
+        });
+      }
+    }
+
+    const remoteFailByAccount = new Map<string, unknown>();
+    if (remoteTargets.length) {
+      const settled = await runWithConcurrency(remoteTargets, 10, (target) =>
+        deleteObserverAccount({
+          baseUrl: target.baseUrl,
+          token: target.token,
+          accountId: target.accountId,
+        }),
+      );
+      for (let index = 0; index < remoteTargets.length; index += 1) {
+        const target = remoteTargets[index]!;
+        const outcome = settled[index]!;
+        if (outcome.status === "rejected" && !remoteFailByAccount.has(target.managedAccountId)) {
+          remoteFailByAccount.set(target.managedAccountId, outcome.reason);
+        }
+      }
+    }
+
+    for (const [accountId, reason] of remoteFailByAccount) {
+      const mapped = managedAccountRemoteDeleteError(reason);
+      results.push({
+        id: accountId,
+        status: "failed",
+        code: mapped.code,
+        message: mapped.message,
+      });
+    }
+
+    const toLocalDelete = afterDecryptSucceeded.filter((item) => !remoteFailByAccount.has(item.id));
+    if (!toLocalDelete.length) {
+      const ordered = input.deletes.map((item) => results.find((entry) => entry.id === item.id)!);
+      return {
+        results: ordered,
+        succeeded: ordered.filter((entry) => entry.status === "success").length,
+        failed: ordered.filter((entry) => entry.status === "failed").length,
+      };
+    }
+
+    const actuallyDeleted: string[] = [];
+    const txFailedIds = new Set<string>();
+    await sql.begin(async (tx) => {
+      for (const item of toLocalDelete) {
+        const [deleted] = await tx<Array<{ id: string }>>`
+          update managed_accounts
+          set deleted_at = now(), revision = revision + 1, updated_at = now()
+          where id = ${item.id}
+            and owner_user_id = ${input.ownerUserId}
+            and revision = ${item.expectedRevision}
+            and deleted_at is null
+          returning id
+        `;
+        if (!deleted) txFailedIds.add(item.id);
+        else actuallyDeleted.push(item.id);
+      }
+      if (actuallyDeleted.length) {
+        await tx`
+          delete from remote_account_catalog catalog
+          using sub2api_account_links link
+          where link.managed_account_id in ${tx(actuallyDeleted)}
+            and link.owner_user_id = ${input.ownerUserId}
+            and catalog.connection_id = link.connection_id
+            and catalog.external_account_id = link.external_account_id
+        `;
+        await tx`
+          delete from sub2api_account_links
+          where managed_account_id in ${tx(actuallyDeleted)}
+            and owner_user_id = ${input.ownerUserId}
+        `;
+        await tx`
+          insert into audit_events (id, actor_user_id, event_type, outcome, request_id, metadata)
+          values (${randomUUID()}, ${input.ownerUserId}, 'managed_account.batch_deleted', 'success', ${input.requestId ?? null}, ${tx.json({ count: actuallyDeleted.length, accountIds: actuallyDeleted })})
+        `;
+      }
+    });
+
+    for (const accountId of txFailedIds) {
+      results.push({
+        id: accountId,
+        status: "failed",
+        code: "ACCOUNT_REVISION_CONFLICT",
+        message: "Account changed in another session or no longer exists",
+      });
+    }
+    for (const accountId of actuallyDeleted) {
+      results.push({ id: accountId, status: "success" });
+    }
+
+    const ordered = input.deletes.map((item) => results.find((entry) => entry.id === item.id)!);
+    return {
+      results: ordered,
+      succeeded: ordered.filter((entry) => entry.status === "success").length,
+      failed: ordered.filter((entry) => entry.status === "failed").length,
+    };
+  } finally {
+    await closeDatabaseClient(sql).catch(() => undefined);
+  }
+}
+
+export async function batchUpdateManagedAccounts(input: {
+  ownerUserId: string;
+  updates: Array<{ id: string; expectedRevision: number }>;
+  localStatus: AccountLocalStatus;
+  requestId?: string;
+}): Promise<BatchUpdateResult> {
+  if (!input.updates.length) {
+    return { results: [], succeeded: 0, failed: 0 };
+  }
+  const config = await readRuntimeConfig();
+  const sql = createDatabaseClient(config.database, { max: 1 });
+  try {
+    const ids = input.updates.map((item) => item.id);
+    const existingRows = ids.length
+      ? await sql<Array<{ id: string; revision: number }>>`
+          select id, revision from managed_accounts
+          where owner_user_id = ${input.ownerUserId}
+            and id in ${sql(ids)}
+            and deleted_at is null
+        `
+      : [];
+    const existingMap = new Map(existingRows.map((row) => [row.id, row.revision]));
+    const results: BatchUpdateResult["results"] = [];
+    const preliminarySucceeded: Array<{ id: string; expectedRevision: number }> = [];
+    for (const item of input.updates) {
+      const current = existingMap.get(item.id);
+      if (current === undefined) {
+        results.push({
+          id: item.id,
+          status: "failed",
+          code: "ACCOUNT_NOT_FOUND",
+          message: "Account not found or already deleted",
+        });
+      } else if (current !== item.expectedRevision) {
+        results.push({
+          id: item.id,
+          status: "failed",
+          code: "ACCOUNT_REVISION_CONFLICT",
+          message: "Account changed in another session or no longer exists",
+        });
+      } else {
+        preliminarySucceeded.push(item);
+      }
+    }
+    if (!preliminarySucceeded.length) {
+      return {
+        results: input.updates.map((item) => results.find((entry) => entry.id === item.id)!),
+        succeeded: 0,
+        failed: results.length,
+      };
+    }
+
+    const actuallyUpdated: string[] = [];
+    const txFailedIds = new Set<string>();
+    await sql.begin(async (tx) => {
+      for (const item of preliminarySucceeded) {
+        const [updated] = await tx<Array<{ id: string }>>`
+          update managed_accounts
+          set local_status = ${input.localStatus}, revision = revision + 1, updated_at = now()
+          where id = ${item.id}
+            and owner_user_id = ${input.ownerUserId}
+            and revision = ${item.expectedRevision}
+            and deleted_at is null
+          returning id
+        `;
+        if (!updated) txFailedIds.add(item.id);
+        else actuallyUpdated.push(item.id);
+      }
+      if (actuallyUpdated.length) {
+        await tx`
+          insert into audit_events (id, actor_user_id, event_type, outcome, request_id, metadata)
+          values (${randomUUID()}, ${input.ownerUserId}, 'managed_account.batch_updated', 'success', ${input.requestId ?? null}, ${tx.json({ count: actuallyUpdated.length, accountIds: actuallyUpdated, localStatus: input.localStatus })})
+        `;
+      }
+    });
+
+    for (const accountId of txFailedIds) {
+      results.push({
+        id: accountId,
+        status: "failed",
+        code: "ACCOUNT_REVISION_CONFLICT",
+        message: "Account changed in another session or no longer exists",
+      });
+    }
+    for (const accountId of actuallyUpdated) {
+      results.push({ id: accountId, status: "success" });
+    }
+    const ordered = input.updates.map((item) => results.find((entry) => entry.id === item.id)!);
+    return {
+      results: ordered,
+      succeeded: ordered.filter((entry) => entry.status === "success").length,
+      failed: ordered.filter((entry) => entry.status === "failed").length,
+    };
+  } finally {
+    await closeDatabaseClient(sql).catch(() => undefined);
+  }
+}
+
 function managedAccountRemoteDeleteError(error: unknown): ManagedAccountServiceError {
   if (!(error instanceof Sub2apiClientError)) {
     return new ManagedAccountServiceError(

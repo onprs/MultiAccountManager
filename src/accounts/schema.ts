@@ -138,6 +138,39 @@ export const deleteManagedAccountRequestSchema = z
   .object({ expectedRevision: z.number().int().min(1) })
   .strict();
 
+export const batchDeleteManagedAccountsRequestSchema = z
+  .object({
+    deletes: z
+      .array(
+        z
+          .object({
+            id: z.string().uuid(),
+            expectedRevision: z.number().int().min(1),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(200),
+  })
+  .strict();
+
+export const batchUpdateManagedAccountsRequestSchema = z
+  .object({
+    updates: z
+      .array(
+        z
+          .object({
+            id: z.string().uuid(),
+            expectedRevision: z.number().int().min(1),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(200),
+    localStatus: accountLocalStatusSchema,
+  })
+  .strict();
+
 export const managedAccountListQuerySchema = z
   .object({
     page: z.coerce.number().int().min(1).max(1_000_000).default(1),
