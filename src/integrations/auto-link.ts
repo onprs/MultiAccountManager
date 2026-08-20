@@ -31,6 +31,7 @@ export function normalizeRemoteAccountEmail(value: string): string | null {
 const automaticLinkPlatforms = [
   "openai",
   "opencode_go",
+  "antigravity",
   "clinepass",
   "openrouter",
 ] as const satisfies readonly AccountPlatform[];

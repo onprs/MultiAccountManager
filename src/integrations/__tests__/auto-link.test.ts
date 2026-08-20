@@ -43,25 +43,27 @@ describe("Sub2API automatic account linking", () => {
     expect(normalizeRemoteAccountEmail("not-an-email")).toBeNull();
   });
 
-  it("supports OpenAI, OpenCode Go, ClinePass and OpenRouter automatic linking", () => {
+  it("supports OpenAI, OpenCode Go, Antigravity, ClinePass and OpenRouter automatic linking", () => {
     expect(supportsAutomaticAccountLink("openai")).toBe(true);
     expect(supportsAutomaticAccountLink("opencode_go")).toBe(true);
+    expect(supportsAutomaticAccountLink("antigravity")).toBe(true);
     expect(supportsAutomaticAccountLink("clinepass")).toBe(true);
     expect(supportsAutomaticAccountLink("openrouter")).toBe(true);
-    expect(supportsAutomaticAccountLink("antigravity")).toBe(false);
   });
 
-  it("links unique OpenAI, OpenCode Go, ClinePass and OpenRouter email matches within each platform", () => {
+  it("links unique OpenAI, OpenCode Go, Antigravity, ClinePass and OpenRouter email matches within each platform", () => {
     expect(selectUniqueEmailLinks({
       local: [
         local("local-openai", "shared-index"),
         local("local-opencode-go", "shared-index", "opencode_go"),
+        local("local-antigravity", "shared-index", "antigravity"),
         local("local-clinepass", "shared-index", "clinepass"),
         local("local-openrouter", "shared-index", "openrouter"),
       ],
       remote: [
         remote("remote-openai", "shared-index"),
         remote("remote-opencode-go", "shared-index", "opencode_go"),
+        remote("remote-antigravity", "shared-index", "antigravity"),
         remote("remote-clinepass", "shared-index", "clinepass"),
         remote("remote-openrouter", "shared-index", "openrouter"),
       ],
@@ -69,6 +71,7 @@ describe("Sub2API automatic account linking", () => {
     })).toEqual([
       { managedAccountId: "local-openai", externalAccountId: "remote-openai" },
       { managedAccountId: "local-opencode-go", externalAccountId: "remote-opencode-go" },
+      { managedAccountId: "local-antigravity", externalAccountId: "remote-antigravity" },
       { managedAccountId: "local-clinepass", externalAccountId: "remote-clinepass" },
       { managedAccountId: "local-openrouter", externalAccountId: "remote-openrouter" },
     ]);
