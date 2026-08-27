@@ -1,5 +1,7 @@
 # Account Vault
 
+> English version: [README.en.md](./README.en.md)
+
 Account Vault 是一个内部 Next.js 应用，用于 AI 账号记录的加密保管，以及对 Sub2API 状态的按作用域观察和关联账号删除。浏览器端保险库与 Sub2API 服务凭据属于两个独立的安全域。
 
 应用可在无数据库的情况下启动，通过 `/setup` 校验现有 PostgreSQL 实例，执行带校验和的迁移，并写入经认证加密的 `runtime.enc`。Setup 会创建唯一所有者，并在不使用临时密码的前提下完成经用户验证的 Passkey 注册，随后要求浏览器端完成 Vault 初始化与恢复套件（Recovery Kit）确认，应用才会进入 READY 状态。安全设置支持命名备份凭据、会话绑定的 Passkey 提权，以及事务性的最后凭据删除保护。
