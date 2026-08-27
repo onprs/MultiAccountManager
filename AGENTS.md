@@ -2,6 +2,7 @@
 
 ## 项目基线
 
+- 线上代码仓库：https://github.com/onprs/MultiAccountManager.git（remote: `origin`）；推送前必须确认 `.gitignore` 已覆盖全部凭据与密钥，禁止将 `runtime.enc`、`.env*`、Setup Token、Config Master Key 等隐私内容提交或推送。
 - 当前线上目标仅为 `sub2api_tokyo`；未经明确指示，不操作其他线上实例。
 - 项目基于 Next.js 16 App Router、React 19、TypeScript、PostgreSQL 14+、Node.js 22.22.2 和 pnpm 11.13.1。
 - Web 与 `pg-boss` Worker 由同一个 Linux supervisor 管理，不拆分为独立容器。
