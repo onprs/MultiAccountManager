@@ -200,15 +200,17 @@ test("bootstraps the owner and signs in with a user-verified Passkey", async ({
     await page.getByRole("menuitem", { name: "删除" }).click();
     const duplicateDeletePromise = page.waitForResponse(
       (response) =>
-        /\/api\/v1\/accounts\/[0-9a-f-]+$/.test(response.url()) &&
-        response.request().method() === "DELETE",
+        response.url().endsWith("/api/v1/accounts/batch/delete") &&
+        response.request().method() === "POST",
     );
     await page.getByRole("dialog", { name: "删除账号" })
       .getByRole("button", { name: "确认删除" })
       .click();
-    expect((await duplicateDeletePromise).status()).toBe(204);
+    const duplicateDelete = await duplicateDeletePromise;
+    expect(duplicateDelete.status()).toBe(200);
+    await expect(duplicateDelete.json()).resolves.toMatchObject({ succeeded: 1, failed: 0 });
     await expect(duplicateRow).toHaveCount(0);
-    await expect(accountRow.getByText("已绑定 2 个账号", { exact: true })).toBeVisible();
+    await expect(accountRow.getByText("已绑定 2 个账号", { exact: true })).toHaveCount(0);
 
     const emailSearchPromise = page.waitForResponse(
       (response) =>
