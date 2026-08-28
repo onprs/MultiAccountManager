@@ -190,9 +190,9 @@ test("bootstraps the owner and signs in with a user-verified Passkey", async ({
 
     await page.getByRole("checkbox", { name: `选择 ${accountEmail}` }).check();
     await page.getByRole("checkbox", { name: `选择 ${duplicateEmail}` }).check();
-    await expect(page.getByText("已选 2 个", { exact: true })).toBeVisible();
+    await expect(page.getByText("已全选全部 2 个", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "清除选择" }).click();
-    await expect(page.getByText("已选 2 个", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("已全选全部 2 个", { exact: true })).toHaveCount(0);
 
     const duplicateRow = page.locator("[data-account-id]").filter({ hasText: duplicateEmail });
     await duplicateRow.getByRole("button", { name: "账号操作" }).click();
