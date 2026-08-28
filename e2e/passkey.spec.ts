@@ -31,6 +31,7 @@ test("bootstraps the owner and signs in with a user-verified Passkey", async ({
     },
   });
 
+  let primaryFailed = false;
   try {
     await page.goto("/setup");
     await page.getByLabel("初始化令牌").fill(setupToken);
@@ -323,11 +324,30 @@ test("bootstraps the owner and signs in with a user-verified Passkey", async ({
     await expect(
       page.getByRole("button", { name: "不能删除最后一个通行密钥" }),
     ).toBeDisabled();
+  } catch (error) {
+    primaryFailed = true;
+    throw error;
   } finally {
+    const cleanupErrors: unknown[] = [];
     try {
       await cdp.send("WebAuthn.removeVirtualAuthenticator", { authenticatorId });
-    } finally {
+    } catch (error) {
+      if (!isClosedTargetError(error)) cleanupErrors.push(error);
+    }
+    try {
       await cdp.send("WebAuthn.disable");
+    } catch (error) {
+      if (!isClosedTargetError(error)) cleanupErrors.push(error);
+    }
+    if (!primaryFailed && cleanupErrors[0] !== undefined) {
+      throw cleanupErrors[0];
     }
   }
 });
+
+function isClosedTargetError(error: unknown): boolean {
+  return error instanceof Error
+    && /(?:Target page, context or browser has been closed|Target closed|Session closed)/iu.test(
+      error.message,
+    );
+}
