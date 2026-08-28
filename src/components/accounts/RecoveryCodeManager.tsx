@@ -18,8 +18,13 @@ import {
 } from "@/accounts/schema";
 import type { VaultCryptoClient } from "@/crypto";
 import { authClient } from "@/lib/auth-client";
+import {
+  apiErrorMessage,
+  UserFacingError,
+  userErrorMessage,
+} from "@/lib/api-errors";
 
-type ApiFailure = { message?: string };
+type ApiFailure = { code?: string; message?: string };
 
 export function RecoveryCodeManager({
   ownerUserId,
@@ -57,7 +62,7 @@ export function RecoveryCodeManager({
       })
       .catch((caught) => {
         if (!cancelled) {
-          setError(caught instanceof Error ? caught.message : "恢复码加载失败");
+          setError(userErrorMessage(caught, "恢复码加载失败"));
         }
       })
       .finally(() => {
@@ -115,7 +120,7 @@ export function RecoveryCodeManager({
       setRevealed({});
       await load();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "恢复码导入失败");
+      setError(userErrorMessage(caught, "恢复码导入失败"));
     } finally {
       setBusy(null);
     }
@@ -127,7 +132,7 @@ export function RecoveryCodeManager({
     try {
       const stepUp = await authClient.signIn.passkey();
       if (stepUp.error) {
-        throw new Error(stepUp.error.message || "Passkey 验证失败");
+        throw new UserFacingError("通行密钥验证失败，请重试");
       }
       const result = await api<{ codes: RevealedRecoveryCode[] }>(
         `/api/v1/accounts/${encodeURIComponent(accountId)}/recovery-codes/reveal`,
@@ -148,7 +153,7 @@ export function RecoveryCodeManager({
       setRevealed(plaintext);
     } catch (caught) {
       setRevealed({});
-      setError(caught instanceof Error ? caught.message : "恢复码显示失败");
+      setError(userErrorMessage(caught, "恢复码显示失败"));
     } finally {
       setBusy(null);
     }
@@ -169,7 +174,7 @@ export function RecoveryCodeManager({
       setRevealed({});
       await load();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "恢复码删除失败");
+      setError(userErrorMessage(caught, "恢复码删除失败"));
     } finally {
       setBusy(null);
     }
@@ -189,7 +194,7 @@ export function RecoveryCodeManager({
       setRevealed({});
       await load();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "恢复码状态更新失败");
+      setError(userErrorMessage(caught, "恢复码状态更新失败"));
     } finally {
       setBusy(null);
     }
@@ -206,7 +211,7 @@ export function RecoveryCodeManager({
         </div>
         <button type="button" disabled={!codes.length || Boolean(busy)} onClick={() => void reveal()} className={secondaryButton}>
           {busy === "reveal" ? <LoaderCircle className="animate-spin" aria-hidden="true" size={16} /> : <Eye aria-hidden="true" size={16} />}
-          Passkey 验证并显示
+          验证通行密钥并显示
         </button>
       </div>
 
@@ -275,7 +280,7 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
       : init?.headers,
   });
   const body = (await response.json().catch(() => ({}))) as T & ApiFailure;
-  if (!response.ok) throw new Error(body.message || "请求失败");
+  if (!response.ok) throw new UserFacingError(apiErrorMessage(body));
   return body;
 }
 

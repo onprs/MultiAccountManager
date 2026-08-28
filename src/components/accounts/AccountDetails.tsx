@@ -18,12 +18,17 @@ import {
   type ManagedAccountPrivatePayload,
 } from "@/accounts/schema";
 import type { VaultCryptoClient } from "@/crypto";
+import {
+  apiErrorMessage,
+  UserFacingError,
+  userErrorMessage,
+} from "@/lib/api-errors";
 import { AccountIntegrationStatus } from "@/components/integrations/AccountIntegrationStatus";
 import { RecoveryCodeManager } from "./RecoveryCodeManager";
 import { SecretInput } from "./SecretInput";
 import { TotpEditor } from "./TotpEditor";
 
-type ApiFailure = { message?: string };
+type ApiFailure = { code?: string; message?: string };
 const platformLabels = {
   openai: "OpenAI",
   opencode_go: "OpenCode Go",
@@ -66,7 +71,7 @@ export function AccountDetails({
         return value.length ? value : undefined;
       };
       const loginEmail = optional("loginEmail")?.toLowerCase();
-      if (!loginEmail) throw new Error("登录邮箱不能为空");
+      if (!loginEmail) throw new UserFacingError("登录邮箱不能为空");
       const phone = optional("phone");
       const payload = managedAccountPrivatePayloadSchema.parse({
         version: 1,
@@ -112,7 +117,7 @@ export function AccountDetails({
       });
       await onChanged();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "账号更新失败");
+      setError(userErrorMessage(caught, "账号更新失败"));
     } finally {
       setBusy(null);
     }
@@ -128,7 +133,7 @@ export function AccountDetails({
       });
       await onChanged();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "账号删除失败");
+      setError(userErrorMessage(caught, "账号删除失败"));
     } finally {
       setBusy(null);
     }
@@ -226,7 +231,7 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
     headers: init?.body ? { "Content-Type": "application/json", ...init.headers } : init?.headers,
   });
   const body = (await response.json().catch(() => ({}))) as T & ApiFailure;
-  if (!response.ok) throw new Error(body.message || "请求失败");
+  if (!response.ok) throw new UserFacingError(apiErrorMessage(body));
   return body;
 }
 

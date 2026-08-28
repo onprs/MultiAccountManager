@@ -1,10 +1,12 @@
 "use client";
 
 import { Fingerprint, LoaderCircle } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 
 export function PasskeyLogin() {
+  const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [emailHint, setEmailHint] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -15,10 +17,10 @@ export function PasskeyLogin() {
     setError(null);
     try {
       const result = await authClient.signIn.passkey();
-      if (result.error) throw new Error(result.error.message || "Passkey authentication failed");
-      window.location.assign("/accounts");
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Passkey authentication failed");
+      if (result.error) throw new Error("通行密钥验证失败，请重试");
+      router.replace("/accounts");
+    } catch {
+      setError("通行密钥验证失败，请重试");
       setBusy(false);
     }
   }
@@ -30,12 +32,12 @@ export function PasskeyLogin() {
     conditionalStarted.current = true;
     const result = await authClient.signIn.passkey({ autoFill: true });
     if (result.data) {
-      window.location.assign("/accounts");
+      router.replace("/accounts");
     } else if (
       result.error &&
       (!("code" in result.error) || result.error.code !== "AUTH_CANCELLED")
     ) {
-      setError(result.error.message || "Passkey authentication failed");
+      setError("通行密钥验证失败，请重试");
     }
   }
 
@@ -48,7 +50,7 @@ export function PasskeyLogin() {
           </span>
           <div>
             <h1 className="text-lg font-semibold">Account Vault</h1>
-            <p className="text-sm text-[var(--muted)]">Passkey 登录</p>
+            <p className="text-sm text-[var(--muted)]">通行密钥登录</p>
           </div>
         </div>
         {error ? (
@@ -74,7 +76,7 @@ export function PasskeyLogin() {
           className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-[6px] bg-[var(--accent)] px-4 font-semibold text-white hover:bg-[var(--accent-hover)] disabled:cursor-wait disabled:opacity-60"
         >
           {busy ? <LoaderCircle className="animate-spin" aria-hidden="true" size={17} /> : <Fingerprint aria-hidden="true" size={17} />}
-          使用 Passkey 登录
+          使用通行密钥登录
         </button>
       </section>
     </main>

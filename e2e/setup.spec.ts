@@ -5,7 +5,7 @@ test("renders the database-free setup entry without overflow", async ({ page }, 
   expect(response?.status()).toBe(200);
 
   await expect(page.getByRole("heading", { name: "验证初始化权限" })).toBeVisible();
-  await expect(page.getByLabel("Setup Token")).toBeVisible();
+  await expect(page.getByLabel("初始化令牌")).toBeVisible();
   await expect(page.getByRole("button", { name: "验证并继续" })).toBeEnabled();
 
   const dimensions = await page.evaluate(() => ({

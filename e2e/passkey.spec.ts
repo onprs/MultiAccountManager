@@ -33,30 +33,30 @@ test("bootstraps the owner and signs in with a user-verified Passkey", async ({
 
   try {
     await page.goto("/setup");
-    await page.getByLabel("Setup Token").fill(setupToken);
+    await page.getByLabel("初始化令牌").fill(setupToken);
     await page.getByRole("button", { name: "验证并继续" }).click();
 
     await expect(page.getByRole("heading", { name: "连接 PostgreSQL" })).toBeVisible();
-    await page.getByLabel("Password").fill(databasePassword);
-    await page.getByLabel("SSL Mode").selectOption("disable");
+    await page.getByLabel("数据库密码").fill(databasePassword);
+    await page.getByLabel("SSL 模式").selectOption("disable");
     await page.getByRole("button", { name: "测试连接" }).click();
 
     await expect(page.getByRole("heading", { name: "配置站点身份" })).toBeVisible();
-    await expect(page.getByLabel("Public URL")).toHaveValue("http://localhost:33002");
+    await expect(page.getByLabel("公开访问地址")).toHaveValue("http://localhost:33002");
     await page.getByRole("button", { name: "初始化数据库" }).click();
 
     await expect(page.getByRole("heading", { name: "创建首位管理员" })).toBeVisible();
     await page.getByLabel("管理员名称").fill("E2E Owner");
     await page.getByLabel("登录邮箱").fill("owner@example.test");
-    await page.getByLabel("Passkey 名称").fill("Primary Passkey");
-    await page.getByRole("button", { name: "注册 Passkey 并完成" }).click();
+    await page.getByLabel("通行密钥名称").fill("主要通行密钥");
+    await page.getByRole("button", { name: "注册通行密钥并完成" }).click();
 
     await expect(page).toHaveURL(/\/login$/, { timeout: 15_000 });
     await expect(page.locator('input[autocomplete="username webauthn"]')).toBeVisible();
-    await page.getByRole("button", { name: "使用 Passkey 登录" }).click();
+    await page.getByRole("button", { name: "使用通行密钥登录" }).click();
     await expect(page).toHaveURL(/\/accounts$/, { timeout: 15_000 });
     await expect(
-      page.getByRole("heading", { name: "初始化客户端保险库" }),
+      page.getByRole("heading", { name: "初始化保险库" }),
     ).toBeVisible();
 
     let vaultRequestBody = "";
@@ -76,7 +76,7 @@ test("bootstraps the owner and signs in with a user-verified Passkey", async ({
     expect(vaultRequestBody).not.toContain("vaultRootKey");
 
     const downloadPromise = page.waitForEvent("download");
-    await page.getByRole("button", { name: "下载 Recovery Kit" }).click();
+    await page.getByRole("button", { name: "下载恢复套件" }).click();
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toMatch(/^account-vault-recovery-.*\.json$/);
     await page.getByRole("checkbox").check();
@@ -133,7 +133,7 @@ test("bootstraps the owner and signs in with a user-verified Passkey", async ({
     await expect(page.getByText(accountEmail, { exact: true })).toBeVisible();
     const accountRow = page.locator("[data-account-id]").filter({ hasText: accountEmail });
     await expect(accountRow.getByText("未配置连接", { exact: true })).toBeVisible();
-    await accountRow.getByRole("button", { name: "复制邮箱" }).click();
+    await accountRow.getByRole("button", { name: "复制邮箱", exact: true }).click();
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(accountEmail);
     await expect(accountRow.getByText("********", { exact: true })).toBeVisible();
     await accountRow.getByRole("button", { name: "显示密码" }).click();
@@ -151,7 +151,7 @@ test("bootstraps the owner and signs in with a user-verified Passkey", async ({
       ["复制手机号接码 CDK", smsEndpointCdk],
     ] as const) {
       await expect(accountRow.getByText(value, { exact: true })).toBeVisible();
-      await accountRow.getByRole("button", { name: buttonName }).click();
+      await accountRow.getByRole("button", { name: buttonName, exact: true }).click();
       await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(value);
     }
 
@@ -244,7 +244,7 @@ test("bootstraps the owner and signs in with a user-verified Passkey", async ({
     await page.getByRole("menuitem", { name: "编辑" }).click();
     const detailsDialog = page.getByRole("dialog", { name: accountEmail });
     await expect(detailsDialog.getByLabel("登录密码（可选）", { exact: true })).toHaveValue(accountPassword);
-    await expect(detailsDialog.getByRole("button", { name: "Passkey 验证并编辑" })).toHaveCount(0);
+    await expect(detailsDialog.getByRole("button", { name: "验证通行密钥并编辑" })).toHaveCount(0);
     await expect(detailsDialog.getByLabel("邮箱接码地址（可选）")).toHaveValue(emailOtpEndpoint);
     await expect(detailsDialog.getByLabel("邮箱接码 CDK（可选）", { exact: true })).toHaveValue(emailOtpCdk);
     await expect(detailsDialog.getByLabel("手机号接码地址（可选）")).toHaveValue(smsEndpoint);
@@ -272,7 +272,7 @@ test("bootstraps the owner and signs in with a user-verified Passkey", async ({
     for (const code of recoveryCodes) expect(recoveryRequestBody).not.toContain(code);
 
     await detailsDialog
-      .getByRole("button", { name: "Passkey 验证并显示" })
+      .getByRole("button", { name: "验证通行密钥并显示" })
       .click();
     await expect(detailsDialog.getByText(recoveryCodes[0])).toBeVisible();
     await expect(detailsDialog.getByText(recoveryCodes[1])).toBeVisible();
@@ -319,12 +319,15 @@ test("bootstraps the owner and signs in with a user-verified Passkey", async ({
 
     await page.getByRole("link", { name: "登录安全" }).click();
     await expect(page).toHaveURL(/\/settings\/security$/);
-    await expect(page.getByText("Primary Passkey")).toBeVisible();
+    await expect(page.getByText("主要通行密钥")).toBeVisible();
     await expect(
-      page.getByRole("button", { name: "不能删除最后一个 Passkey" }),
+      page.getByRole("button", { name: "不能删除最后一个通行密钥" }),
     ).toBeDisabled();
   } finally {
-    await cdp.send("WebAuthn.removeVirtualAuthenticator", { authenticatorId });
-    await cdp.send("WebAuthn.disable");
+    try {
+      await cdp.send("WebAuthn.removeVirtualAuthenticator", { authenticatorId });
+    } finally {
+      await cdp.send("WebAuthn.disable");
+    }
   }
 });

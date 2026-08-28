@@ -14,6 +14,11 @@ import {
 } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { authClient } from "@/lib/auth-client";
+import {
+  apiErrorMessage,
+  UserFacingError,
+  userErrorMessage,
+} from "@/lib/api-errors";
 import { VaultClientError, VaultCryptoClient } from "@/crypto";
 import {
   AccountManager,
@@ -22,7 +27,7 @@ import {
 import type { VaultCryptoDocument } from "@/crypto/schema";
 
 type Mode = "initialize" | "locked" | "unlocked" | "recovery";
-type ApiFailure = { message?: string };
+type ApiFailure = { code?: string; message?: string };
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
@@ -34,7 +39,7 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
       : init?.headers,
   });
   const body = (await response.json().catch(() => ({}))) as T & ApiFailure;
-  if (!response.ok) throw new Error(body.message || "请求失败");
+  if (!response.ok) throw new UserFacingError(apiErrorMessage(body));
   return body;
 }
 
@@ -93,14 +98,14 @@ export function VaultWorkspace({
     try {
       setProgress("正在测定此设备的 Argon2id 参数");
       const benchmark = await client.benchmarkKdf();
-      setProgress(`正在派生密钥，预计约 ${benchmark.estimatedMilliseconds} ms`);
+      setProgress(`正在派生密钥，预计约 ${benchmark.estimatedMilliseconds} 毫秒`);
       const initialized = await client.initialize({
         ownerUserId,
         vaultId: crypto.randomUUID(),
         password,
         kdfParams: benchmark.params,
       });
-      setProgress("正在保存加密 envelope");
+      setProgress("正在保存加密数据");
       const saved = await api<{ vault: VaultCryptoDocument }>("/api/v1/vault", {
         method: "POST",
         body: JSON.stringify({ vault: initialized.vault }),
@@ -239,7 +244,7 @@ export function VaultWorkspace({
     return (
       <VaultShell status="未初始化">
         <form onSubmit={initialize} className="max-w-xl space-y-6">
-          <Heading title="初始化客户端保险库" subtitle="主密码只在此浏览器的 Crypto Worker 中使用" />
+          <Heading title="初始化保险库" subtitle="主密码只在当前浏览器中使用" />
           <PasswordField name="password" label="主密码" autoComplete="new-password" />
           <PasswordField name="confirmation" label="确认主密码" autoComplete="new-password" />
           <Notice>忘记主密码后只能使用稍后生成的恢复密钥解锁。系统无法替你恢复明文。</Notice>
@@ -257,12 +262,12 @@ export function VaultWorkspace({
         <div className="max-w-2xl space-y-6">
           <Heading title="保存保险库恢复资料" subtitle="恢复密钥只显示这一次" />
           <div className="border border-[var(--border)] bg-white p-5">
-            <p className="mb-2 text-xs font-semibold text-[var(--muted)]">RECOVERY KEY</p>
+            <p className="mb-2 text-xs font-semibold text-[var(--muted)]">恢复密钥</p>
             <code className="block break-all text-sm leading-7">{recoveryKey}</code>
           </div>
           <div className="flex flex-wrap gap-3">
             <button type="button" onClick={() => downloadRecoveryKit(vault, recoveryKey)} className={secondaryButton}>
-              <Download aria-hidden="true" size={16} />下载 Recovery Kit
+              <Download aria-hidden="true" size={16} />下载恢复套件
             </button>
             <button type="button" onClick={() => window.print()} className={secondaryButton}>
               <Printer aria-hidden="true" size={16} />打印
@@ -270,7 +275,7 @@ export function VaultWorkspace({
           </div>
           <label className="flex items-start gap-3 border-l-4 border-[var(--warning)] bg-amber-50 px-4 py-3 text-sm text-[var(--warning)]">
             <input type="checkbox" checked={recoveryConfirmed} onChange={(event) => setRecoveryConfirmed(event.target.checked)} className="mt-1 size-4" />
-            <span>我已将 Recovery Kit 保存到独立的安全位置，并理解丢失主密码和恢复密钥后数据无法恢复。</span>
+            <span>我已将恢复套件保存到独立的安全位置，并理解丢失主密码和恢复密钥后数据无法恢复。</span>
           </label>
           <button type="button" disabled={!recoveryConfirmed || busy === "confirm-recovery"} onClick={confirmRecovery} className={primaryButton}>
             {busy === "confirm-recovery" ? <LoaderCircle className="animate-spin" aria-hidden="true" size={16} /> : <Check aria-hidden="true" size={16} />}
@@ -310,11 +315,11 @@ export function VaultWorkspace({
     return (
       <VaultShell status="已解锁" action={<button type="button" onClick={lock} className={secondaryButton}><Lock aria-hidden="true" size={16} />锁定</button>}>
         <div className="max-w-xl space-y-6">
-          <Heading title="恢复资料尚未确认" subtitle="生成一套新的 Recovery Kit 后才能进入账号工作区" />
+          <Heading title="恢复资料尚未确认" subtitle="生成一套新的恢复套件后才能进入账号工作区" />
           <Notice>之前显示的恢复密钥无法再次从服务器读取。轮换后旧恢复密钥将失效。</Notice>
           <button type="button" disabled={Boolean(busy)} onClick={rotateRecovery} className={primaryButton}>
             {busy === "rotate-recovery" ? <LoaderCircle className="animate-spin" aria-hidden="true" size={16} /> : <RefreshCw aria-hidden="true" size={16} />}
-            验证 Passkey 并重新生成
+            验证通行密钥并重新生成
           </button>
           <ErrorMessage value={error} />
         </div>
@@ -336,16 +341,16 @@ export function VaultWorkspace({
         <summary className="cursor-pointer text-lg font-semibold">保险库安全</summary>
         <div className="mt-6 space-y-8">
           <form onSubmit={changePassword} className="space-y-4 border-b border-[var(--border)] pb-8">
-            <div><h2 className="font-semibold">更改主密码</h2><p className="mt-1 text-sm text-[var(--muted)]">只重封装 Root Key，不重新加密账号记录。</p></div>
+            <div><h2 className="font-semibold">更改主密码</h2><p className="mt-1 text-sm text-[var(--muted)]">只重新封装根密钥，不会重新加密账号记录。</p></div>
             <PasswordField name="newPassword" label="新主密码" autoComplete="new-password" />
             <PasswordField name="confirmation" label="确认新主密码" autoComplete="new-password" />
-            <Action busy={busy === "change-password"} icon={KeyRound}>验证 Passkey 并更新</Action>
+            <Action busy={busy === "change-password"} icon={KeyRound}>验证通行密钥并更新</Action>
           </form>
           <div className="space-y-4">
-            <div><h2 className="font-semibold">轮换恢复密钥</h2><p className="mt-1 text-sm text-[var(--muted)]">旧 Recovery Kit 将立即失效。</p></div>
+            <div><h2 className="font-semibold">轮换恢复密钥</h2><p className="mt-1 text-sm text-[var(--muted)]">旧恢复套件将立即失效。</p></div>
             <button type="button" disabled={Boolean(busy)} onClick={rotateRecovery} className={secondaryButton}>
               {busy === "rotate-recovery" ? <LoaderCircle className="animate-spin" aria-hidden="true" size={16} /> : <RefreshCw aria-hidden="true" size={16} />}
-              验证 Passkey 并轮换
+              验证通行密钥并轮换
             </button>
           </div>
         </div>
@@ -356,7 +361,7 @@ export function VaultWorkspace({
 
 async function stepUp() {
   const result = await authClient.signIn.passkey();
-  if (result.error) throw new Error(result.error.message || "Passkey 验证失败");
+  if (result.error) throw new UserFacingError("通行密钥验证失败，请重试");
 }
 
 function downloadRecoveryKit(vault: VaultCryptoDocument, recoveryKey: string) {
@@ -383,14 +388,14 @@ function message(error: unknown, fallback: string): string {
   if (error instanceof VaultClientError && error.code === "VAULT_UNLOCK_FAILED") {
     return "主密码错误或保险库数据已损坏";
   }
-  return error instanceof Error ? error.message : fallback;
+  return userErrorMessage(error, fallback);
 }
 
 function VaultShell({ status, action, children }: { status: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <main className="mx-auto max-w-7xl px-5 py-8 lg:px-8">
       <div className="mb-8 flex items-center justify-between gap-4 border-b border-[var(--border)] pb-4">
-        <div className="flex items-center gap-2 text-sm font-semibold"><span className={`size-2 rounded-full ${status === "已解锁" ? "bg-emerald-600" : "bg-[var(--warning)]"}`} />Vault {status}</div>
+        <div className="flex items-center gap-2 text-sm font-semibold"><span className={`size-2 rounded-full ${status === "已解锁" ? "bg-emerald-600" : "bg-[var(--warning)]"}`} />保险库{status}</div>
         {action}
       </div>
       {children}

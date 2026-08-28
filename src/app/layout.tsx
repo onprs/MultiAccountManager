@@ -6,7 +6,7 @@ export const metadata: Metadata = {
     default: "Account Vault",
     template: "%s | Account Vault",
   },
-  description: "AI account operations vault",
+  description: "AI 账号加密管理工具",
   robots: { index: false, follow: false },
 };
 

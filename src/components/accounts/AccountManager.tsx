@@ -52,6 +52,11 @@ import {
 } from "@/integrations/auto-link";
 import type { ConnectionSummary, RemoteCatalogItem } from "@/integrations/schema";
 import { currentEpochMilliseconds } from "@/lib/clock";
+import {
+  apiErrorMessage,
+  UserFacingError,
+  userErrorMessage,
+} from "@/lib/api-errors";
 import type { IntegrationLinkView } from "@/server/integrations/service";
 import { AccountDetails } from "./AccountDetails";
 import { QrCredentialInput } from "./QrCredentialInput";
@@ -73,7 +78,7 @@ type OtpView = TotpResult & {
   accountRevision: number;
   expiresAt: number;
 };
-type ApiFailure = { message?: string };
+type ApiFailure = { code?: string; message?: string };
 type SortField = "email" | "platform" | "sub2api";
 type SortDirection = "asc" | "desc";
 type PendingBulkAction = {
@@ -364,7 +369,7 @@ export function AccountManager({
       setPages(displayPages);
       if (requestedPage > displayPages) setPage(displayPages);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "账号列表加载失败");
+      setError(userErrorMessage(caught, "账号列表加载失败"));
     } finally {
       setLoading(false);
     }
@@ -648,7 +653,7 @@ export function AccountManager({
       setPage(1);
       await Promise.all([load(), autoLinkSub2apiAccounts()]);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "账号保存失败");
+      setError(userErrorMessage(caught, "账号保存失败"));
     } finally {
       setSaving(false);
     }
@@ -731,12 +736,12 @@ export function AccountManager({
       }
 
       setImportReport(
-        `OpenRouter 账号: 已导入 ${imported} 个；跳过 ${parsed.errors.length} 个；保存失败 ${saveFailures} 个`,
+        `OpenRouter 账号：已导入 ${imported} 个；跳过 ${parsed.errors.length} 个；保存失败 ${saveFailures} 个`,
       );
       setPage(1);
       await Promise.all([load(), autoLinkSub2apiAccounts()]);
     } catch {
-      setError("OpenRouter accounts.json 无法解析");
+      setError("无法解析 OpenRouter accounts.json 文件");
     } finally {
       setImporting(false);
     }
@@ -848,7 +853,12 @@ export function AccountManager({
     setBulkProgress({ done: 0, total: selectedAccounts.length });
     let succeeded = 0;
     let failed = 0;
-    const firstFailures: Array<{ id: string; code?: string; message?: string }> = [];
+    const firstFailures: Array<{
+      id: string;
+      code?: string;
+      message?: string;
+      displayMessage?: string;
+    }> = [];
     const batchSize = 200;
     for (let offset = 0; offset < selectedAccounts.length; offset += batchSize) {
       const chunk = selectedAccounts.slice(offset, offset + batchSize);
@@ -870,8 +880,10 @@ export function AccountManager({
         });
         succeeded += result.succeeded;
         failed += result.failed;
-        for (const entry of result.results.filter((item) => item.status === "failed").slice(0, 3)) {
-          firstFailures.push(entry);
+        for (const entry of result.results) {
+          if (entry.status === "failed" && firstFailures.length < 3) {
+            firstFailures.push(entry);
+          }
         }
       } catch {
         // 批量失败时回退为串行单条，保证兼容与可观测
@@ -896,7 +908,7 @@ export function AccountManager({
             if (firstFailures.length < 3) {
               firstFailures.push({
                 id: account.id,
-                message: caught instanceof Error ? caught.message : undefined,
+                displayMessage: userErrorMessage(caught, "账号更新失败"),
               });
             }
           }
@@ -907,7 +919,10 @@ export function AccountManager({
     setSelectedAccountIds(new Set());
     const summary = `${nextStatus === "archived" ? "归档" : "恢复"}完成：成功 ${succeeded} 个，失败 ${failed} 个`;
     const detail = firstFailures.length
-      ? `；失败示例：${firstFailures.map((entry) => entry.code ?? entry.message ?? entry.id).join("、")}`
+      ? `；失败示例：${firstFailures.map((entry) => accountFailureMessage(
+          entry.id,
+          entry.displayMessage ?? apiErrorMessage(entry, "账号更新失败"),
+        )).join("、")}`
       : "";
     await Promise.all([load(), autoLinkSub2apiAccounts()]);
     if (failed) setError(summary + detail);
@@ -942,10 +957,11 @@ export function AccountManager({
   async function confirmDeleteSelected() {
     if (!pendingBulkAction) return;
     const byId = new Map(allItems.map((account) => [account.id, account] as const));
+    const missingIds = pendingBulkAction.accountIds.filter((id) => !byId.has(id));
     const targets = pendingBulkAction.accountIds
       .map((id) => byId.get(id))
       .filter((account): account is AccountView => Boolean(account));
-    const missing = pendingBulkAction.accountIds.length - targets.length;
+    const missing = missingIds.length;
     setBulkBusy(true);
     setError(null);
     setOperationStatus(null);
@@ -953,7 +969,9 @@ export function AccountManager({
     let succeeded = 0;
     let failed = missing;
     const failureMessages = new Set<string>();
-    if (missing) failureMessages.add("部分账号已不存在或已被删除");
+    for (const id of missingIds.slice(0, 5)) {
+      failureMessages.add(accountFailureMessage(id, "账号已不存在或已被删除"));
+    }
     const batchSize = 100;
     for (let offset = 0; offset < targets.length; offset += batchSize) {
       const chunk = targets.slice(offset, offset + batchSize);
@@ -976,7 +994,9 @@ export function AccountManager({
         succeeded += result.succeeded;
         failed += result.failed;
         for (const entry of result.results.filter((item) => item.status === "failed").slice(0, 5)) {
-          failureMessages.add(entry.message ?? entry.code ?? entry.id);
+          failureMessages.add(
+            accountFailureMessage(entry.id, apiErrorMessage(entry, "账号删除失败")),
+          );
         }
       } catch (caught) {
         // 回退：批量接口不可用时以较小并发执行单条删除，仍展示进度
@@ -986,17 +1006,20 @@ export function AccountManager({
             body: JSON.stringify({ expectedRevision: account.revision }),
           });
         });
-        for (const outcome of step) {
+        for (const [index, outcome] of step.entries()) {
           if (outcome.status === "fulfilled") succeeded += 1;
           else {
             failed += 1;
-            const message =
-              outcome.reason instanceof Error ? outcome.reason.message : "账号删除失败";
-            failureMessages.add(message);
+            failureMessages.add(
+              accountFailureMessage(
+                chunk[index]!.id,
+                userErrorMessage(outcome.reason, "账号删除失败"),
+              ),
+            );
           }
         }
-        if (caught instanceof Error && failureMessages.size < 5) {
-          failureMessages.add(caught.message);
+        if (failureMessages.size < 5) {
+          failureMessages.add(userErrorMessage(caught, "批量删除请求失败"));
         }
       }
       setBulkProgress({ done: Math.min(offset + chunk.length, targets.length), total: targets.length });
@@ -1530,11 +1553,11 @@ function AccountDialog({
     setPreviewError(null);
     try {
       const configuration = await totpFromForm(new FormData(formRef.current), client);
-      if (!configuration) throw new Error("请先输入 TOTP 密钥或 otpauth URI");
+      if (!configuration) throw new UserFacingError("请先输入 TOTP 密钥或 otpauth URI");
       setPreview(await client.previewTotp(configuration));
     } catch (caught) {
       setPreview(null);
-      setPreviewError(caught instanceof Error ? caught.message : "TOTP 参数无效");
+      setPreviewError(userErrorMessage(caught, "TOTP 参数无效"));
     }
   }
 
@@ -1623,7 +1646,7 @@ async function privatePayloadFromForm(
     return value.length ? value : undefined;
   };
   const loginEmail = optional("loginEmail")?.toLowerCase();
-  if (!loginEmail) throw new Error("登录邮箱不能为空");
+  if (!loginEmail) throw new UserFacingError("登录邮箱不能为空");
   return managedAccountPrivatePayloadSchema.parse({
     version: 1,
     loginEmail,
@@ -1674,7 +1697,7 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
       : init?.headers,
   });
   const body = (await response.json().catch(() => ({}))) as T & ApiFailure;
-  if (!response.ok) throw new Error(body.message || "请求失败");
+  if (!response.ok) throw new UserFacingError(apiErrorMessage(body));
   return body;
 }
 
@@ -1781,6 +1804,11 @@ function groupCode(code: string): string {
   return `${code.slice(0, split)} ${code.slice(split)}`;
 }
 
+function accountFailureMessage(accountId: string, message: string): string {
+  const reference = accountId.slice(0, 8) || "未知";
+  return `账号 ${reference}：${message}`;
+}
+
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
 }
@@ -1799,7 +1827,7 @@ function integrationHealthLabel(value: string): string {
     paused: "已暂停",
     missing: "远端缺失",
     unknown: "状态未知",
-  } as Record<string, string>)[value] ?? value.replaceAll("_", " ");
+  } as Record<string, string>)[value] ?? "状态未知";
 }
 
 function integrationHealthColor(value: string): string {
@@ -1815,11 +1843,11 @@ function integrationSyncLabel(value: string): string {
     stale: "同步延迟",
     disconnected: "连接中断",
     never_synced: "等待同步",
-  } as Record<string, string>)[value] ?? value.replaceAll("_", " ");
+  } as Record<string, string>)[value] ?? "状态未知";
 }
 
 function integrationRemoteStatusLabel(value: string): string {
-  return ({ active: "运行中", disabled: "已停用", inactive: "未启用", error: "异常" } as Record<string, string>)[value] ?? value;
+  return ({ active: "运行中", disabled: "已停用", inactive: "未启用", error: "异常" } as Record<string, string>)[value] ?? "状态未知";
 }
 
 function FormSection({

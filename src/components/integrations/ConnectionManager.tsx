@@ -20,12 +20,17 @@ import type {
   RemoteCatalogItem,
 } from "@/integrations/schema";
 import { authClient } from "@/lib/auth-client";
+import {
+  apiErrorMessage,
+  UserFacingError,
+  userErrorMessage,
+} from "@/lib/api-errors";
 import type {
   IntegrationAlertView,
   IntegrationLinkView,
 } from "@/server/integrations/service";
 
-type ApiFailure = { message?: string };
+type ApiFailure = { code?: string; message?: string };
 type ManagedAccountList = {
   items: ManagedAccount[];
   page: number;
@@ -91,7 +96,7 @@ export function ConnectionManager() {
   useEffect(() => {
     const pending = window.setTimeout(() => {
       void loadOverview().catch((caught) =>
-        setError(caught instanceof Error ? caught.message : "连接数据加载失败"),
+        setError(userErrorMessage(caught, "连接数据加载失败")),
       );
     }, 0);
     return () => clearTimeout(pending);
@@ -102,7 +107,7 @@ export function ConnectionManager() {
     const pending = window.setTimeout(() => {
       void loadCatalog(selectedConnectionId, controller.signal).catch((caught) => {
         if (!controller.signal.aborted) {
-          setError(caught instanceof Error ? caught.message : "远端目录加载失败");
+          setError(userErrorMessage(caught, "远端目录加载失败"));
         }
       });
     }, 0);
@@ -119,7 +124,7 @@ export function ConnectionManager() {
         "/api/v1/connections/service-key/rotate",
         { method: "POST" },
       );
-      setStatus(`服务加密密钥已轮换为 ${result.keyRing.currentKeyId}；已重加密 ${result.migrated} 个 token`);
+      setStatus(`服务加密密钥已轮换为 ${result.keyRing.currentKeyId}；已重新加密 ${result.migrated} 个令牌`);
       await loadOverview();
     });
   }
@@ -154,11 +159,11 @@ export function ConnectionManager() {
           ? `连接成功；远端时钟偏差约 ${Math.abs(result.test.clockSkewSeconds)} 秒`
           : result.syncQueued
             ? "连接成功，首次同步已入队"
-            : "连接成功，Observer 身份和 schema 已验证",
+            : "连接成功，远端身份和数据格式已验证",
       );
       await loadOverview();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "连接创建失败");
+      setError(userErrorMessage(caught, "连接创建失败"));
     } finally {
       setBusy(null);
     }
@@ -219,7 +224,7 @@ export function ConnectionManager() {
         body: JSON.stringify({ token }),
       });
       setReplaceTokenFor(null);
-      setStatus("Sub2API 集成 Token 已验证并替换");
+      setStatus("Sub2API 集成令牌已验证并替换");
       await loadOverview();
     });
   }
@@ -262,7 +267,7 @@ export function ConnectionManager() {
     try {
       await operation();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "操作失败");
+      setError(userErrorMessage(caught, "操作失败"));
     } finally {
       setBusy(null);
     }
@@ -279,12 +284,12 @@ export function ConnectionManager() {
         <div>
           <h1 className="text-2xl font-semibold">Sub2API 连接</h1>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            {connections.length} 个最小权限 Observer 连接
+            {connections.length} 个最小权限连接
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className={`size-2 rounded-full ${worker?.healthy ? "bg-emerald-500" : "bg-red-500"}`} />
-          <span>{worker?.healthy ? "Worker 正常" : "Worker 未连接"}</span>
+          <span>{worker?.healthy ? "后台同步正常" : "后台同步未连接"}</span>
           {worker?.heartbeatAt ? (
             <span className="text-[var(--muted)]">{formatDate(worker.heartbeatAt)}</span>
           ) : null}
@@ -302,8 +307,8 @@ export function ConnectionManager() {
         <h2 id="new-connection-title" className="font-semibold">添加连接</h2>
         <form onSubmit={create} className="mt-4 grid gap-3 lg:grid-cols-[180px_minmax(260px,1fr)_minmax(260px,1fr)_140px_auto]">
           <Field label="名称"><input name="name" required maxLength={100} className={inputClass} /></Field>
-          <Field label="HTTPS Base URL"><input name="baseUrl" type="url" required placeholder="https://sub2api.example.com" className={inputClass} /></Field>
-          <Field label="集成 Token（读取 + 删除）"><input name="token" type="password" required autoComplete="off" className={inputClass} /></Field>
+          <Field label="HTTPS 基础地址"><input name="baseUrl" type="url" required placeholder="https://sub2api.example.com" className={inputClass} /></Field>
+          <Field label="集成令牌（读取 + 删除）"><input name="token" type="password" required autoComplete="off" className={inputClass} /></Field>
           <Field label="同步周期"><select name="syncIntervalSeconds" defaultValue="300" className={inputClass}><option value="60">1 分钟</option><option value="300">5 分钟</option><option value="900">15 分钟</option><option value="3600">1 小时</option></select></Field>
           <button type="submit" disabled={Boolean(busy)} className={`${primaryButton} self-end`}>
             {busy === "create" ? <LoaderCircle className="animate-spin" aria-hidden="true" size={16} /> : <KeyRound aria-hidden="true" size={16} />}
@@ -323,9 +328,9 @@ export function ConnectionManager() {
                   <Td><button type="button" onClick={() => setSelectedConnectionId(connection.id)} className="font-semibold hover:underline">{connection.name}</button><p className="mt-1 text-xs text-[var(--muted)]">{connection.baseUrl}</p></Td>
                   <Td><code className="text-xs">{connection.remoteInstanceId ?? "未验证"}</code></Td>
                   <Td><Status value={connection.syncHealth} /><p className="mt-1 text-xs text-[var(--muted)]">失败 {connection.consecutiveFailures} 次</p></Td>
-                  <Td>{connection.lastSuccessAt ? formatDate(connection.lastSuccessAt) : "从未"}{connection.lastErrorCode ? <p className="mt-1 text-xs text-[var(--danger)]">{connection.lastErrorCode}</p> : null}</Td>
+                  <Td>{connection.lastSuccessAt ? formatDate(connection.lastSuccessAt) : "从未"}{connection.lastErrorCode ? <p className="mt-1 text-xs text-[var(--danger)]">错误代码：<code>{connection.lastErrorCode}</code></p> : null}</Td>
                   <Td><code className="text-xs">{connection.tokenHint}</code><p className="mt-1 text-xs text-[var(--muted)]">{connection.tokenKeyId}</p></Td>
-                  <Td><div className="flex gap-2"><IconAction label="测试连接" busy={busy === `test:${connection.id}`} icon={CloudCog} onClick={() => void testConnection(connection)} /><IconAction label="立即同步" busy={busy === `sync:${connection.id}`} icon={Play} onClick={() => void syncConnection(connection)} /><IconAction label="替换 Sub2API 集成 Token" icon={KeyRound} onClick={() => setReplaceTokenFor(connection)} /><IconAction label={connection.enabled ? "停用连接" : "启用连接"} busy={busy === `toggle:${connection.id}`} icon={connection.enabled ? Unplug : RefreshCw} onClick={() => void toggleConnection(connection)} /><IconAction label="删除连接" busy={busy === `delete:${connection.id}`} icon={Trash2} onClick={() => void removeConnection(connection)} /></div></Td>
+                  <Td><div className="flex gap-2"><IconAction label="测试连接" busy={busy === `test:${connection.id}`} icon={CloudCog} onClick={() => void testConnection(connection)} /><IconAction label="立即同步" busy={busy === `sync:${connection.id}`} icon={Play} onClick={() => void syncConnection(connection)} /><IconAction label="替换 Sub2API 集成令牌" icon={KeyRound} onClick={() => setReplaceTokenFor(connection)} /><IconAction label={connection.enabled ? "停用连接" : "启用连接"} busy={busy === `toggle:${connection.id}`} icon={connection.enabled ? Unplug : RefreshCw} onClick={() => void toggleConnection(connection)} /><IconAction label="删除连接" busy={busy === `delete:${connection.id}`} icon={Trash2} onClick={() => void removeConnection(connection)} /></div></Td>
                 </tr>
               ))}
               {!connections.length ? <tr><td colSpan={6} className="h-28 text-center text-[var(--muted)]">尚未配置连接</td></tr> : null}
@@ -353,7 +358,7 @@ export function ConnectionManager() {
                   <tr key={item.externalAccountId} className="border-t border-[var(--border)]">
                     <Td><p className="font-semibold">{item.externalName}</p><code className="text-xs text-[var(--muted)]">{item.externalAccountId}</code></Td>
                     <Td>{platformLabel(item.externalPlatform)}<p className="text-xs text-[var(--muted)]">{item.externalType}</p></Td>
-                    <Td><Status value={item.availability} /><p className="mt-1 text-xs text-[var(--muted)]">{item.remoteStatus}</p></Td>
+                    <Td><Status value={item.availability} /><p className="mt-1 text-xs text-[var(--muted)]">{statusLabel(item.remoteStatus)}</p></Td>
                     <Td>{quotaLabel(item)}</Td>
                     <Td>{item.linkedManagedAccountId ? <span className="inline-flex items-center gap-2"><Link2 aria-hidden="true" size={15} />{managedById.get(item.linkedManagedAccountId)?.displayName ?? "已关联"}</span> : <div className="flex gap-2"><select aria-label={`关联 ${item.externalName}`} value={linkTargets[targetKey] ?? ""} onChange={(event) => setLinkTargets((current) => ({ ...current, [targetKey]: event.target.value }))} className={`${inputClass} min-w-44`}><option value="">选择本地账号</option>{eligible.map((account) => <option key={account.id} value={account.id}>{account.displayName}</option>)}</select><IconAction label="确认关联" busy={busy === `link:${targetKey}`} disabled={!linkTargets[targetKey]} icon={Link2} onClick={() => void linkRemote(item)} /></div>}</Td>
                   </tr>
@@ -383,7 +388,7 @@ export function ConnectionManager() {
         <div className="mt-4 space-y-2">
           {alerts.map((alert) => (
             <div key={alert.id} className="flex flex-col gap-3 border-l-4 border-[var(--warning)] bg-amber-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-              <div><p className="font-semibold">{alert.accountName} · {alert.summary}</p><p className="mt-1 text-xs text-[var(--muted)]">{alert.connectionName} · {alert.status} · {formatDate(alert.lastFiredAt)}</p></div>
+              <div><p className="font-semibold">{alert.accountName} · {alert.summary}</p><p className="mt-1 text-xs text-[var(--muted)]">{alert.connectionName} · {statusLabel(alert.status)} · {formatDate(alert.lastFiredAt)}</p></div>
               {alert.status === "firing" ? <button type="button" disabled={Boolean(busy)} onClick={() => void acknowledge(alert.id)} className={secondaryButton}>{busy === `ack:${alert.id}` ? <LoaderCircle className="animate-spin" aria-hidden="true" size={16} /> : <Check aria-hidden="true" size={16} />}确认</button> : <Status value={alert.status} />}
             </div>
           ))}
@@ -394,10 +399,10 @@ export function ConnectionManager() {
       {replaceTokenFor ? (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4" role="presentation">
           <form onSubmit={replaceToken} role="dialog" aria-modal="true" aria-labelledby="replace-token-title" className="w-full max-w-lg border border-[var(--border)] bg-white p-5 shadow-xl">
-            <h2 id="replace-token-title" className="text-lg font-semibold">替换 {replaceTokenFor.name} 的 Token</h2>
-            <p className="mt-1 text-sm text-[var(--muted)]">新 token 会先验证 instance ID，再使用当前 service key 加密。</p>
-            <label className="mt-5 block space-y-2"><span className="text-xs font-semibold text-[var(--muted)]">集成 Token（读取 + 删除）</span><input name="token" type="password" required autoComplete="off" className={inputClass} /></label>
-            <div className="mt-5 flex justify-end gap-3"><button type="button" disabled={Boolean(busy)} onClick={() => setReplaceTokenFor(null)} className={secondaryButton}>取消</button><button type="submit" disabled={Boolean(busy)} className={primaryButton}>{busy === `replace:${replaceTokenFor.id}` ? <LoaderCircle className="animate-spin" aria-hidden="true" size={16} /> : <KeyRound aria-hidden="true" size={16} />}Passkey 验证并替换</button></div>
+            <h2 id="replace-token-title" className="text-lg font-semibold">替换 {replaceTokenFor.name} 的集成令牌</h2>
+            <p className="mt-1 text-sm text-[var(--muted)]">新令牌会先验证远端实例 ID，再使用当前服务密钥加密。</p>
+            <label className="mt-5 block space-y-2"><span className="text-xs font-semibold text-[var(--muted)]">集成令牌（读取 + 删除）</span><input name="token" type="password" required autoComplete="off" className={inputClass} /></label>
+            <div className="mt-5 flex justify-end gap-3"><button type="button" disabled={Boolean(busy)} onClick={() => setReplaceTokenFor(null)} className={secondaryButton}>取消</button><button type="submit" disabled={Boolean(busy)} className={primaryButton}>{busy === `replace:${replaceTokenFor.id}` ? <LoaderCircle className="animate-spin" aria-hidden="true" size={16} /> : <KeyRound aria-hidden="true" size={16} />}验证通行密钥并替换</button></div>
           </form>
         </div>
       ) : null}
@@ -426,7 +431,7 @@ function accountLinkTargetKey(item: RemoteCatalogItem): string {
 
 async function passkeyStepUp() {
   const result = await authClient.signIn.passkey();
-  if (result.error) throw new Error(result.error.message || "Passkey 验证失败");
+  if (result.error) throw new UserFacingError("通行密钥验证失败，请重试");
 }
 
 async function api<T = unknown>(url: string, init?: RequestInit): Promise<T> {
@@ -437,7 +442,7 @@ async function api<T = unknown>(url: string, init?: RequestInit): Promise<T> {
     headers: init?.body ? { "Content-Type": "application/json", ...init.headers } : init?.headers,
   });
   const body = (await response.json().catch(() => ({}))) as T & ApiFailure;
-  if (!response.ok) throw new Error(body.message || "请求失败");
+  if (!response.ok) throw new UserFacingError(apiErrorMessage(body));
   return body;
 }
 
@@ -446,12 +451,37 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 function Th({ children }: { children: React.ReactNode }) { return <th className="px-4 py-3 font-semibold">{children}</th>; }
 function Td({ children }: { children: React.ReactNode }) { return <td className="px-4 py-3 align-top">{children}</td>; }
-function Status({ value }: { value: string }) { return <span className="inline-flex min-h-6 items-center rounded-[4px] bg-[var(--surface-subtle)] px-2 text-xs font-semibold">{value.replaceAll("_", " ")}</span>; }
+function Status({ value }: { value: string }) { return <span className="inline-flex min-h-6 items-center rounded-[4px] bg-[var(--surface-subtle)] px-2 text-xs font-semibold">{statusLabel(value)}</span>; }
+function statusLabel(value: string) {
+  return ({
+    healthy: "可用",
+    disabled: "已停用",
+    banned: "已封禁",
+    verification_required: "需要验证",
+    reauth_required: "需要重新授权",
+    error: "异常",
+    temporarily_unavailable: "暂时不可用",
+    rate_limited: "限流中",
+    overloaded: "过载中",
+    paused: "已暂停",
+    missing: "远端缺失",
+    unknown: "状态未知",
+    fresh: "已同步",
+    stale: "同步延迟",
+    disconnected: "连接中断",
+    never_synced: "等待同步",
+    firing: "告警中",
+    acknowledged: "已确认",
+    resolved: "已恢复",
+    active: "运行中",
+    inactive: "未启用",
+  } as Record<string, string>)[value] ?? "状态未知";
+}
 function Notice({ kind, children }: { kind: "error" | "success"; children: React.ReactNode }) { return <p role={kind === "error" ? "alert" : "status"} className={`mb-4 flex items-start gap-2 border-l-4 px-4 py-3 text-sm ${kind === "error" ? "border-[var(--danger)] bg-red-50 text-[var(--danger)]" : "border-emerald-600 bg-emerald-50 text-emerald-800"}`}>{kind === "error" ? <CircleAlert className="mt-0.5 shrink-0" aria-hidden="true" size={16} /> : <Check className="mt-0.5 shrink-0" aria-hidden="true" size={16} />}{children}</p>; }
 function IconAction({ label, icon: Icon, busy, disabled, onClick }: { label: string; icon: React.ComponentType<{ size?: number; className?: string; "aria-hidden"?: boolean | "true" | "false" }>; busy?: boolean; disabled?: boolean; onClick: () => void }) { return <button type="button" title={label} aria-label={label} disabled={busy || disabled} onClick={onClick} className="grid size-9 shrink-0 place-items-center rounded-[6px] border border-[var(--border)] bg-white text-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-40">{busy ? <LoaderCircle className="animate-spin" aria-hidden="true" size={16} /> : <Icon aria-hidden="true" size={16} />}</button>; }
 function formatDate(value: string) { return new Intl.DateTimeFormat("zh-CN", { dateStyle: "short", timeStyle: "short" }).format(new Date(value)); }
 function platformLabel(value: string) { return ({ openai: "OpenAI", opencode_go: "OpenCode Go", antigravity: "Antigravity", clinepass: "ClinePass", openrouter: "OpenRouter" } as Record<string, string>)[value] ?? value; }
-function quotaLabel(item: RemoteCatalogItem) { const windows = item.quota?.windows; if (!windows) return item.quotaErrorCode ?? "无快照"; const entries = Object.entries(windows).slice(0, 3); return <div className="space-y-1 text-xs">{entries.map(([name, window]) => <p key={name}><span className="text-[var(--muted)]">{name.replaceAll("_", " ")}</span> {Math.round(window.utilization)}%</p>)}</div>; }
+function quotaLabel(item: RemoteCatalogItem) { const windows = item.quota?.windows; if (!windows) return item.quotaErrorCode ? `配额不可用（${item.quotaErrorCode}）` : "无快照"; const entries = Object.entries(windows).slice(0, 3); return <div className="space-y-1 text-xs">{entries.map(([name, window]) => <p key={name}><span className="text-[var(--muted)]">{name.replaceAll("_", " ")}</span> {Math.round(window.utilization)}%</p>)}</div>; }
 
 const inputClass = "min-h-10 w-full rounded-[6px] border border-[var(--border)] bg-white px-3 py-2 text-sm";
 const primaryButton = "inline-flex h-10 items-center justify-center gap-2 rounded-[6px] bg-[var(--accent)] px-4 font-semibold text-white hover:bg-[var(--accent-hover)] disabled:opacity-50";

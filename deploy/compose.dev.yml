@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:18.4-alpine
+    image: postgres:16.15-alpine
     environment:
       POSTGRES_DB: account_vault
       POSTGRES_USER: account_vault

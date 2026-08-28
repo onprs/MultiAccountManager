@@ -52,7 +52,28 @@ export function AccountIntegrationStatus({ managedAccountId }: { managedAccountI
 }
 
 function Badge({ children }: { children: string }) {
-  return <span className="rounded-[4px] bg-white px-2 py-1 text-xs font-semibold">{children.replaceAll("_", " ")}</span>;
+  return <span className="rounded-[4px] bg-white px-2 py-1 text-xs font-semibold">{statusLabel(children)}</span>;
+}
+
+function statusLabel(value: string) {
+  return ({
+    healthy: "可用",
+    disabled: "已停用",
+    banned: "已封禁",
+    verification_required: "需要验证",
+    reauth_required: "需要重新授权",
+    error: "异常",
+    temporarily_unavailable: "暂时不可用",
+    rate_limited: "限流中",
+    overloaded: "过载中",
+    paused: "已暂停",
+    missing: "远端缺失",
+    unknown: "状态未知",
+    fresh: "已同步",
+    stale: "同步延迟",
+    disconnected: "连接中断",
+    never_synced: "等待同步",
+  } as Record<string, string>)[value] ?? "状态未知";
 }
 
 function quotaSummary(quota: unknown) {

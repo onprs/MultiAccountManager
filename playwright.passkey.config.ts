@@ -9,7 +9,8 @@ export default defineConfig({
   workers: 1,
   timeout: 120_000,
   forbidOnly: Boolean(process.env.CI),
-  retries: process.env.CI ? 1 : 0,
+  // 初始化会持久化一次性状态，失败后不能复用同一数据库重试。
+  retries: 0,
   reporter: process.env.CI ? "github" : "list",
   use: {
     ...devices["Desktop Chrome"],

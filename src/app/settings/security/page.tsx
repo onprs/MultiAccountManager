@@ -8,7 +8,7 @@ import { PasskeySecurity } from "@/components/security/PasskeySecurity";
 import { SignOutButton } from "@/components/auth/SignOutButton";
 
 export const dynamic = "force-dynamic";
-export const metadata: Metadata = { title: "Passkey 安全" };
+export const metadata: Metadata = { title: "通行密钥安全" };
 
 export default async function SecuritySettingsPage() {
   const auth = await getAuth();
@@ -29,7 +29,7 @@ export default async function SecuritySettingsPage() {
       </header>
       <main className="mx-auto max-w-5xl px-5 py-8 lg:px-8">
         <Link href="/accounts" className="mb-6 inline-flex items-center gap-2 text-sm font-semibold text-[var(--muted)] hover:text-[var(--foreground)]"><ArrowLeft aria-hidden="true" size={16} />返回账号</Link>
-        <div className="mb-8"><h1 className="text-2xl font-semibold">登录安全</h1><p className="mt-1 text-sm text-[var(--muted)]">管理 owner 的 Passkey 登录凭据</p></div>
+        <div className="mb-8"><h1 className="text-2xl font-semibold">登录安全</h1><p className="mt-1 text-sm text-[var(--muted)]">管理管理员账户的通行密钥</p></div>
         <PasskeySecurity />
       </main>
     </div>

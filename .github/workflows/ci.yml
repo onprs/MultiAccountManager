@@ -7,17 +7,21 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
       postgres:
-        image: postgres:16
+        image: postgres:16.15
         env:
           POSTGRES_DB: account_vault
           POSTGRES_USER: account_vault
-          POSTGRES_PASSWORD: local-e2e-only
+          POSTGRES_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}
         ports:
           - 5432:5432
         options: >-
@@ -26,12 +30,12 @@ jobs:
           --health-timeout 5s
           --health-retries 12
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@f520eceda224fe1a4aed5a2a27a194379a409996 # v6.0.10
         with:
           version: 11.13.1
           run_install: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22.22.2
           cache: pnpm
@@ -45,14 +49,17 @@ jobs:
         shell: bash
         run: |
           mkdir -p .runtime-passkey
-          printf '%s' 'e2e-setup-token' > .runtime-passkey/account-vault-setup-token
+          setup_token="$(node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('base64url'))")"
+          echo "::add-mask::$setup_token"
+          printf '%s' "$setup_token" > .runtime-passkey/account-vault-setup-token
+          printf 'E2E_SETUP_TOKEN=%s\n' "$setup_token" >> "$GITHUB_ENV"
           node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('base64url'))" > .runtime-passkey/account-vault-config-key
+          chmod 0600 .runtime-passkey/account-vault-setup-token .runtime-passkey/account-vault-config-key
       - name: Passkey registration and login E2E
         run: pnpm test:e2e:passkey
         env:
           RUN_PASSKEY_E2E: "1"
-          E2E_SETUP_TOKEN: e2e-setup-token
-          E2E_DATABASE_PASSWORD: local-e2e-only
+          E2E_DATABASE_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}
           RUNTIME_CONFIG_DIR: ${{ github.workspace }}/.runtime-passkey
           SETUP_TOKEN_FILE: ${{ github.workspace }}/.runtime-passkey/account-vault-setup-token
           CONFIG_MASTER_KEY_FILE: ${{ github.workspace }}/.runtime-passkey/account-vault-config-key
@@ -64,3 +71,11 @@ jobs:
           SETUP_TOKEN_FILE: ${{ github.workspace }}/.runtime-passkey/account-vault-setup-token
           CONFIG_MASTER_KEY_FILE: ${{ github.workspace }}/.runtime-passkey/account-vault-config-key
       - run: pnpm audit --audit-level high --registry=https://registry.npmjs.org
+      - name: Upload browser test artifacts
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v7.0.1
+        with:
+          name: playwright-artifacts
+          path: test-results
+          if-no-files-found: ignore
+          retention-days: 7

@@ -18,9 +18,14 @@ import {
   type TotpResult,
 } from "@/accounts/schema";
 import type { VaultCryptoClient } from "@/crypto";
+import {
+  apiErrorMessage,
+  UserFacingError,
+  userErrorMessage,
+} from "@/lib/api-errors";
 import { QrCredentialInput } from "./QrCredentialInput";
 
-type ApiFailure = { message?: string };
+type ApiFailure = { code?: string; message?: string };
 
 export function TotpEditor({
   ownerUserId,
@@ -49,10 +54,10 @@ export function TotpEditor({
   }
 
   async function parseForm(): Promise<TotpConfiguration> {
-    if (!formRef.current) throw new Error("TOTP 表单不可用");
+    if (!formRef.current) throw new UserFacingError("TOTP 表单不可用");
     const values = new FormData(formRef.current);
     const input = String(values.get("totpInput") ?? "").trim();
-    if (!input) throw new Error("请输入 TOTP 密钥或 otpauth URI");
+    if (!input) throw new UserFacingError("请输入 TOTP 密钥或 otpauth URI");
     if (input.toLowerCase().startsWith("otpauth://")) {
       return client.parseTotpUri(input);
     }
@@ -79,7 +84,7 @@ export function TotpEditor({
       setPreview(await client.previewTotp(await parseForm()));
     } catch (caught) {
       setPreview(null);
-      setError(caught instanceof Error ? caught.message : "TOTP 参数无效");
+      setError(userErrorMessage(caught, "TOTP 参数无效"));
     }
   }
 
@@ -96,7 +101,7 @@ export function TotpEditor({
       );
       await onChanged();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "TOTP 更新失败");
+      setError(userErrorMessage(caught, "TOTP 更新失败"));
     } finally {
       setBusy(null);
     }
@@ -109,7 +114,7 @@ export function TotpEditor({
       await persistPayload(removeTotpFromPrivatePayload(decrypted));
       await onChanged();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "TOTP 移除失败");
+      setError(userErrorMessage(caught, "TOTP 移除失败"));
     } finally {
       setBusy(null);
     }
@@ -205,7 +210,7 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
     headers: init?.body ? { "Content-Type": "application/json", ...init.headers } : init?.headers,
   });
   const body = (await response.json().catch(() => ({}))) as T & ApiFailure;
-  if (!response.ok) throw new Error(body.message || "请求失败");
+  if (!response.ok) throw new UserFacingError(apiErrorMessage(body));
   return body;
 }
 

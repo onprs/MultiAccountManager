@@ -12,6 +12,11 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { authClient } from "@/lib/auth-client";
+import {
+  apiErrorMessage,
+  UserFacingError,
+  userErrorMessage,
+} from "@/lib/api-errors";
 
 type Passkey = {
   id: string;
@@ -22,7 +27,7 @@ type Passkey = {
   aaguid: string | null;
 };
 
-type Failure = { message?: string };
+type Failure = { code?: string; message?: string };
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
@@ -32,13 +37,13 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     headers: init?.body ? { "Content-Type": "application/json", ...init.headers } : init?.headers,
   });
   const body = (await response.json().catch(() => ({}))) as T & Failure;
-  if (!response.ok) throw new Error(body.message || "请求失败");
+  if (!response.ok) throw new UserFacingError(apiErrorMessage(body));
   return body;
 }
 
 export function PasskeySecurity() {
   const [passkeys, setPasskeys] = useState<Passkey[]>([]);
-  const [name, setName] = useState("Backup Passkey");
+  const [name, setName] = useState("备用通行密钥");
   const [editing, setEditing] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [busy, setBusy] = useState<string | null>("load");
@@ -57,7 +62,7 @@ export function PasskeySecurity() {
       })
       .catch((caught) => {
         if (!cancelled) {
-          setError(caught instanceof Error ? caught.message : "Passkey 加载失败");
+          setError(userErrorMessage(caught, "通行密钥加载失败"));
         }
       })
       .finally(() => {
@@ -70,7 +75,7 @@ export function PasskeySecurity() {
 
   async function stepUp() {
     const result = await authClient.signIn.passkey();
-    if (result.error) throw new Error(result.error.message || "Passkey 验证失败");
+    if (result.error) throw new UserFacingError("通行密钥验证失败，请重试");
   }
 
   async function addPasskey() {
@@ -79,10 +84,10 @@ export function PasskeySecurity() {
     try {
       await stepUp();
       const result = await authClient.passkey.addPasskey({ name: name.trim() || undefined });
-      if (result.error) throw new Error(result.error.message || "Passkey 注册失败");
+      if (result.error) throw new UserFacingError("通行密钥注册失败，请重试");
       await refresh();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Passkey 注册失败");
+      setError(userErrorMessage(caught, "通行密钥注册失败"));
     } finally {
       setBusy(null);
     }
@@ -99,7 +104,7 @@ export function PasskeySecurity() {
       setEditing(null);
       await refresh();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Passkey 重命名失败");
+      setError(userErrorMessage(caught, "通行密钥重命名失败"));
     } finally {
       setBusy(null);
     }
@@ -115,7 +120,7 @@ export function PasskeySecurity() {
       });
       await refresh();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Passkey 删除失败");
+      setError(userErrorMessage(caught, "通行密钥删除失败"));
     } finally {
       setBusy(null);
     }
@@ -132,8 +137,8 @@ export function PasskeySecurity() {
       <section aria-labelledby="registered-passkeys">
         <div className="mb-4 flex items-end justify-between gap-4 border-b border-[var(--border)] pb-4">
           <div>
-            <h2 id="registered-passkeys" className="text-lg font-semibold">已注册 Passkey</h2>
-            <p className="mt-1 text-sm text-[var(--muted)]">删除前需要用现有 Passkey 重新验证。</p>
+            <h2 id="registered-passkeys" className="text-lg font-semibold">已注册的通行密钥</h2>
+            <p className="mt-1 text-sm text-[var(--muted)]">删除前需要使用现有通行密钥重新验证。</p>
           </div>
           <span className="text-sm font-semibold tabular-nums">{passkeys.length}</span>
         </div>
@@ -147,11 +152,11 @@ export function PasskeySecurity() {
                   <span className="grid size-9 shrink-0 place-items-center rounded-[6px] bg-[var(--surface-subtle)] text-[var(--foreground)]"><KeyRound aria-hidden="true" size={17} /></span>
                   <div className="min-w-0">
                     {editing === passkey.id ? (
-                      <input autoFocus value={editName} maxLength={100} onChange={(event) => setEditName(event.target.value)} className="h-9 w-full rounded-[6px] border border-[var(--border)] px-2" aria-label="Passkey 名称" />
+                      <input autoFocus value={editName} maxLength={100} onChange={(event) => setEditName(event.target.value)} className="h-9 w-full rounded-[6px] border border-[var(--border)] px-2" aria-label="通行密钥名称" />
                     ) : (
-                      <p className="truncate font-semibold">{passkey.name || "Unnamed Passkey"}</p>
+                      <p className="truncate font-semibold">{passkey.name || "未命名通行密钥"}</p>
                     )}
-                    <p className="text-xs text-[var(--muted)]">{passkey.backedUp ? "已同步" : "仅此设备"} · {passkey.deviceType}</p>
+                    <p className="text-xs text-[var(--muted)]">{passkey.backedUp ? "已同步" : "仅此设备"} · {passkeyDeviceTypeLabel(passkey.deviceType)}</p>
                   </div>
                 </div>
                 <time className="text-xs text-[var(--muted)]" dateTime={passkey.createdAt}>{new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium" }).format(new Date(passkey.createdAt))}</time>
@@ -164,7 +169,7 @@ export function PasskeySecurity() {
                   ) : (
                     <>
                       <IconButton label="重命名" onClick={() => { setEditing(passkey.id); setEditName(passkey.name || ""); }} icon={Pencil} />
-                      <IconButton label={passkeys.length <= 1 ? "不能删除最后一个 Passkey" : "删除 Passkey"} disabled={passkeys.length <= 1 || busy === passkey.id} onClick={() => removePasskey(passkey.id)} icon={busy === passkey.id ? LoaderCircle : Trash2} spin={busy === passkey.id} danger />
+                      <IconButton label={passkeys.length <= 1 ? "不能删除最后一个通行密钥" : "删除通行密钥"} disabled={passkeys.length <= 1 || busy === passkey.id} onClick={() => removePasskey(passkey.id)} icon={busy === passkey.id ? LoaderCircle : Trash2} spin={busy === passkey.id} danger />
                     </>
                   )}
                 </div>
@@ -176,20 +181,24 @@ export function PasskeySecurity() {
 
       <section aria-labelledby="add-passkey" className="max-w-xl">
         <div className="mb-4 border-b border-[var(--border)] pb-4">
-          <h2 id="add-passkey" className="text-lg font-semibold">添加备用 Passkey</h2>
+          <h2 id="add-passkey" className="text-lg font-semibold">添加备用通行密钥</h2>
           <p className="mt-1 text-sm text-[var(--muted)]">建议至少保留两个不同设备或介质的凭据。</p>
         </div>
         <label className="block space-y-2">
-          <span className="text-xs font-semibold text-[var(--muted)]">Passkey 名称</span>
+          <span className="text-xs font-semibold text-[var(--muted)]">通行密钥名称</span>
           <input value={name} maxLength={100} onChange={(event) => setName(event.target.value)} className="h-10 w-full rounded-[6px] border border-[var(--border)] bg-white px-3" />
         </label>
         <button type="button" disabled={Boolean(busy) || !name.trim()} onClick={addPasskey} className="mt-4 inline-flex h-10 items-center gap-2 rounded-[6px] bg-[var(--accent)] px-4 font-semibold text-white hover:bg-[var(--accent-hover)] disabled:opacity-60">
           {busy === "add" ? <LoaderCircle className="animate-spin" aria-hidden="true" size={16} /> : <Plus aria-hidden="true" size={16} />}
-          添加 Passkey
+          添加通行密钥
         </button>
       </section>
     </div>
   );
+}
+
+function passkeyDeviceTypeLabel(value: string): string {
+  return ({ singleDevice: "单设备", multiDevice: "多设备" } as Record<string, string>)[value] ?? "设备类型未知";
 }
 
 function IconButton({ label, icon: Icon, onClick, disabled, spin, danger }: { label: string; icon: typeof Fingerprint; onClick: () => void; disabled?: boolean; spin?: boolean; danger?: boolean }) {

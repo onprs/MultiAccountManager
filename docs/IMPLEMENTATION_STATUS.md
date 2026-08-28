@@ -1,67 +1,69 @@
-# Implementation status
+# 实现状态
 
-Baseline: first vertical iteration from `Plan_20260716_224122.md`.
+本文记录当前代码库的功能边界与待办，不作为生产环境实时状态页。发布版本、运行状态和备份结果应以目标实例的运行时校验记录为准。
 
-## Implemented
+## 已完成
 
-- Independent Next.js 16 App Router project with pinned pnpm and Node baselines; pnpm 11 is required because the pnpm 9 audit client targets the retired npm audit endpoint.
-- Standalone build, Worker bundle, PID 1 supervisor, child UID/GID split, signal forwarding, and release hash verification.
-- Database-free Setup Mode and live/ready health endpoints.
-- Setup Token session with same-origin checks, constant-time comparison, expiry, single active session, and basic attempt limiting.
-- Structured PostgreSQL connection validation for version, read-only state, schema conflicts, privileges, TLS mode, and pool budget.
-- Transactional checksum migrations protected by a PostgreSQL advisory lock.
-- Backup-confirmed domain identity migration with a persistent migration ID, session/old-Passkey revocation, interruption-safe retries, and idempotent owner Passkey re-enrollment completion.
-- XChaCha20-Poly1305 `runtime.enc` storage using a Config Master Key file, atomic replacement, and authenticated config schema.
-- Setup UI through database migration and the unique owner bootstrap.
-- Better Auth with reviewed Drizzle/PostgreSQL schema and Passkey-only route allowlists.
-- Passkey-first owner registration using a short-lived signed setup context, repeated context validation, and mandatory WebAuthn user verification.
-- Server-confirmed `creating_owner -> creating_vault -> ready` transition: owner Passkey completion revokes Setup access, while Recovery Kit confirmation is required before READY.
-- Conditional Passkey login UI plus owner-only Passkey listing, naming, backup registration, and deletion.
-- Session-bound five-minute Passkey step-up, transactional step-up consumption, and concurrent last-Passkey deletion protection.
-- CI, release manifest generation, 1Panel helper scripts, and fallback OCI build.
-- Isolated same-origin Crypto Worker bundle with serialized requests, idle/manual/sign-out lock, key zeroization, and no source maps.
-- Frozen crypto envelope v1 using Argon2id, XChaCha20-Poly1305, owner/type/record-bound AAD, separated data/index/recovery KDF domains, and canonical base64url.
-- Vault initialization, password/recovery unlock, password rewrap, Recovery Kit one-time display/confirmation, and Passkey-gated recovery rotation.
-- Strict owner-scoped Vault APIs with revision locking; API schemas never accept a master password, KEK, Vault Root Key, or decrypted payload.
-- CSP WebAssembly allowance without JavaScript `unsafe-eval`, plus desktop/mobile browser Worker tests for Argon2id, AEAD tamper/AAD rejection, and RFC 6238 vectors.
-- Managed account and recovery-code schema migration plus owner-scoped account list/create/get/update/soft-delete APIs with revision locking and audit metadata.
-- Encrypted account workspace with paged server reads, URL-restorable non-sensitive filters, exact email blind-index search, browser-side filtered-result sorting/decryption, responsive rows, bulk archive/delete, details, edit, and stable non-sensitive local labels.
-- Browser-encrypted login passwords plus separate optional email/phone code endpoints and CDKs, with backward-compatible payload v1, unlocked-Vault editing, current phone-binding counts with historical payload compatibility, and masked/reveal/copy password controls in the account list.
-- Browser-only `otpauth://totp`/Base32/image validation and preview, TOTP replace/remove, encrypted storage, automatic RFC 6238 refresh/copy, and server clock-skew warning.
-- Client-only 2FAuth schema-1 JSON import with OpenAI/OpenCode Go/Antigravity/ClinePass allowlisting, email identity validation, duplicate/malformed reporting, and no icon/base64 upload.
-- Recovery-code batch normalization, exact blind-index deduplication, per-code encryption, metadata-only lists, Passkey-gated transactional reveal, copy, used/restored state, and deletion UI.
-- Separate service encryption key ring with owner/connection-bound XChaCha token envelopes, Passkey-gated token creation/replacement and service-key rotation with previous-key migration.
-- Sub2API connection validation for HTTPS, read/delete scoped authentication, observer schema, stable instance ID, redirect refusal, response size, safe numeric IDs, item isolation, and remote clock skew.
-- Create-or-replace server provisioning for scoped Sub2API tokens, with exact name/Base URL matching, instance pinning, service-key encryption, audit metadata, and first-sync enqueue.
-- Linked-account deletion through the least-privilege `account_observer:delete` endpoint, with revision locking, all-credential preflight, bounded parallel remote-first deletion, idempotent retry, local preservation on upstream failure, and removal of local catalog/link state only after remote success.
-- Remote account catalog, unique-email automatic OpenAI/ClinePass links, concurrent-delete-safe manual platform links, account-list/detail integration status, stored quota windows, and connection diagnostics.
-- Independent `pg-boss` Worker with unique per-connection jobs, cron scheduling, jitter, bounded pagination, transient backoff, graceful shutdown, PostgreSQL heartbeat, and manual enqueue.
-- Normalized account/sync health, two-run missing detection, deduplicated state events, two-observation alert debounce, in-app acknowledge, automatic resolve, and retention cleanup.
-- Observer secret-leak fixtures reject `credentials`/raw `extra`; service-token AAD and previous-key decryption have unit coverage.
-- Isolated PostgreSQL 16 + Playwright virtual authenticator coverage for setup, all migrations, owner registration/login, Vault/Recovery Kit, encrypted account creation, TOTP, recovery codes, READY closure, and final-Passkey protection.
-- PostgreSQL 16.14 acceptance of migrations `0000` through `0005`, encrypted database boundaries, pg-boss tables/queues/schedules, heartbeat refresh, minute jobs, and graceful Worker stop.
-- Built Worker runtime smoke starts `dist/worker/index.mjs`, verifies the child-PID heartbeat, and requires a clean SIGTERM/stopped heartbeat on Linux CI.
-- SHA256-verified Node 22.22.2 acceptance of the release guard, bundled Worker, and supervisor-managed standalone Web + Worker startup with live/ready health.
-- Production 1Panel Linux runtime acceptance on `sub2api_tokyo`, currently release `5b14bcb21dd1`: relative atomic release activation, Node 22.22.2/ABI 127, supervisor PID 1, Web/Worker UID split, loopback-only proxy port, read-only secret mount, manifest verification, graceful restart, and zero post-start application errors.
-- Worker crash fix: the worker previously exited with code 1 when PostgreSQL terminated its connections (`ECONNRESET`) during DB maintenance/restarts, because the uncaught rejection propagated to `main().catch()` and `process.exit(1)`. `src/worker/index.ts` now wraps `runtime.stop()` in a try/catch and adds an `unhandledRejection` handler so transient database resets during shutdown no longer take down the worker process.
-- OpenCode Go automatic account linking: `src/integrations/auto-link.ts` now includes `opencode_go` in the automatic-link platform allowlist, so Sub2API remote accounts are auto-linked to unique matching local managed-account emails via blind index, alongside OpenAI and ClinePass.
-- OpenRouter platform, batch account creation, and automatic linking: `managed_accounts` migration `0007_openrouter_account_platform.sql` (schema version 8), platform schema, UI options, client-side OpenRouter JSON import with batched API provisioning (`/api/v1/accounts/batch`), 2FAuth import mapping, and Sub2API auto-link allowlist now support OpenRouter.
-- Production is available at `https://account-api.onprs.online` with schema version 8 and eight matching migration checksums, fresh release-tagged Worker heartbeat, closed Setup writes, and internal/public `live=200`/`ready=200`.
-- Production Sub2API integration uses one active CIDR-restricted `account_observer:read account_observer:delete` token; the old read-only token is revoked, plaintext provisioning material is removed, and a post-revocation sync observed 34 accounts with zero invalid items or errors.
-- Pre/post release Account Vault and Sub2API custom-format database dumps, `runtime.enc`, and release manifests are SHA256-verified and accepted by `pg_restore -l`; the earlier disposable-database restore drill recovered the owner, Passkey, and Vault before dropping the temporary database.
+### 运行时与部署
 
-## Next slice
+- 基于 Next.js 16 App Router、React 19、Node.js 22.22.2、pnpm 11.13.1 和 PostgreSQL 14+。
+- Web 与 `pg-boss` Worker 由同一个 supervisor 管理，支持信号转发、优雅停止、独立运行 UID 和 Worker 心跳。
+- 支持无数据库启动、存活与就绪探针、加密运行时配置、原子写入和发布清单 SHA256 校验。
+- 已发布迁移为 `0000` 至 `0007`，迁移过程包含校验和、PostgreSQL advisory lock 和 Schema 冲突检查。
+- 提供 1Panel 发布准备、运行时验证、域名迁移和 Sub2API 连接预配脚本。
 
-- Configure a Git remote and obtain a real GitHub Actions result for the PostgreSQL 16, virtual-authenticator, and built-Worker smoke flow.
-- Add generated QR fixtures for automated ZXing image coverage beyond manual browser verification.
-- Add optional encrypted recovery-code batch labels; the database and API field already exist.
-- Validate Observer pagination/retry behavior against a live Sub2API instance using a disposable scoped token.
-- Select an external notification channel before implementing optional email/webhook delivery; in-app alerts are complete.
+### 身份与初始化
 
-## Deployment blockers
+- 初始化令牌会话包含同源校验、恒定时间比较、过期、单活动会话和基础限流。
+- Setup 会验证 PostgreSQL 版本、只读状态、权限、TLS 模式、Schema 冲突和连接池预算。
+- 支持首位管理员的通行密钥注册，不创建临时密码；只有数据库确认凭据已保存后才关闭初始化写入。
+- 支持通行密钥登录、条件式登录、备用凭据命名、会话绑定提权和最后一个凭据删除保护。
+- 支持经过备份确认的域名身份迁移、旧会话与旧来源通行密钥撤销，以及可恢复的管理员重新注册。
 
-- The production Sub2API Observer read/delete contract is live-verified, including an idempotent DELETE for a nonexistent account; a disposable linked-account end-to-end deletion through Account Vault remains pending.
-- PostgreSQL application traffic uses the private `1panel-network` with SSL disabled, but the PostgreSQL host port is still publicly bound; restrict that exposure without breaking internal container connectivity.
-- The verified server and local backups are not a substitute for recurring encrypted offsite backups; the Config Master Key and Recovery Kit still require owner-controlled offline copies.
-- A Git remote and real GitHub Actions evidence are still unavailable; local PostgreSQL 16, Passkey, Worker, and production runtime acceptance remain the current evidence.
-- Multi-user scope, account scale, notification channels, and production PostgreSQL connection budget still need owner confirmation.
+### 浏览器端保险库
+
+- 主密码只在当前页面输入并直接传给同源 Crypto Worker，不做持久化；保险库根密钥只存在于 Worker，记录加解密和 TOTP 计算均在其中执行。
+- 账号明文、恢复密钥、恢复码和派生验证码只在当前页面明确需要展示、编辑或复制时短暂返回，不发送服务端，也不写入 Web Storage 或 IndexedDB；恢复密钥仅在用户主动下载恢复套件时写入所选文件。锁定会终止 Worker 并卸载工作区状态。
+- 使用 Argon2id、XChaCha20-Poly1305、独立 KDF 域、记录绑定 AAD、规范 base64url 和带版本密文信封。
+- 支持主密码或恢复密钥解锁、空闲/手动/退出锁定、主密码重新封装、恢复套件一次性显示与确认，以及恢复密钥轮换。
+- 服务端 Vault API 仅接收密文信封与必要元数据，并使用 revision lock 处理并发更新。
+
+### 账号工作区
+
+- 支持加密创建、编辑、归档、软删除、批量归档/恢复/删除、分页读取和非敏感筛选。
+- 支持邮箱精确盲索引查找、浏览器端解密与排序、密码显示/复制和手机号绑定数量统计。
+- 支持 `otpauth://totp`、Base32 和二维码图片输入，自动刷新验证码、服务器时钟偏差提示和 TOTP 配置管理。
+- 支持 2FAuth schema-1 JSON 与 OpenRouter JSON 的浏览器端解析、加密和批量导入；保险库解锁材料不会发送到服务端。
+- 已移除会在服务端接收保险库解锁材料的遗留 `/api/v1/import/openrouter` 接口；外部调用方必须迁移到浏览器端导入流程。
+- 支持平台恢复码的批量规范化、盲索引去重、逐条加密、通行密钥门控显示、状态更新和删除。
+
+### Sub2API 集成
+
+- 服务集成凭据与用户保险库属于独立安全域，令牌使用专用服务密钥环和连接绑定 AAD 加密。
+- 连接校验要求 HTTPS、稳定实例 ID 和 `account_observer:read account_observer:delete` 最小权限。
+- 支持远端目录同步、分页与响应限制、唯一邮箱自动关联、手动关联、配额快照和连接诊断。
+- 支持归一化账号健康与同步状态、缺失检测、告警去重/确认/自动恢复和保留期清理。
+- 删除关联账号时先删除远端账号；远端失败会保留本地数据，以便幂等重试。
+
+### 自动化验证
+
+- ESLint、TypeScript strict、Vitest、常规 Playwright、通行密钥 Playwright、生产构建和依赖审计已接入 GitHub Actions。
+- 单元测试覆盖密码学、导入解析、迁移、鉴权、账号服务、Sub2API 客户端、服务密钥和同步状态。
+- 浏览器测试覆盖桌面与移动端 Crypto Worker、初始化、虚拟认证器注册/登录、保险库、TOTP、恢复码和账号工作区。
+- Worker 冒烟测试验证构建产物启动、心跳、SIGTERM 和停止后的心跳状态。
+
+## 后续工作
+
+- 在 `main` 上取得包含当前 E2E 选择器修复、依赖安全升级和构建步骤的绿色 GitHub Actions 结果。
+- 为 ZXing 图片识别增加稳定的生成式二维码测试夹具。
+- 使用一次性最小权限令牌完成关联账号远端删除的端到端演练。
+- 为恢复码批量标签补齐用户界面；数据库和 API 字段已具备基础能力。
+- 根据实际需求选择外部通知通道；站内告警已完成。
+- 在明确账号规模与生产连接预算后补充容量基线和性能回归测试。
+
+## 已知运行风险
+
+- 生产 PostgreSQL 的宿主机端口仍需限制暴露范围，同时保持内部容器网络可用。
+- 本地与服务器备份不能替代周期性的异地加密备份；配置主密钥和恢复套件必须由所有者离线、分开保存。
+- Sub2API Observer 的线上分页、退避和一次性删除演练仍需使用可撤销的专用令牌完成。
+- 多用户范围、外部通知、账号规模和生产连接池预算尚未形成已确认的产品约束。
