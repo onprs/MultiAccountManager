@@ -2,31 +2,36 @@
 
 ## 项目基线
 
-- 线上代码仓库：https://github.com/onprs/MultiAccountManager.git（remote: `origin`）；推送前必须确认 `.gitignore` 已覆盖全部凭据与密钥，禁止将 `runtime.enc`、`.env*`、Setup Token、Config Master Key 等隐私内容提交或推送。
-- 当前线上目标仅为 `sub2api_tokyo`；未经明确指示，不操作其他线上实例。
-- 项目基于 Next.js 16 App Router、React 19、TypeScript、PostgreSQL 14+、Node.js 22.22.2 和 pnpm 11.13.1。
-- Web 与 `pg-boss` Worker 由同一个 Linux supervisor 管理，不拆分为独立容器。
+- 代码仓库：https://github.com/onprs/MultiAccountManager.git（remote: `origin`）。凭据与密钥文件（如 `runtime.enc`、`.env*`、Setup Token、Config Master Key 等）由 `.gitignore` 排除，保持版本库纯净。
+- 当前线上维护目标为 `sub2api_tokyo`。其他线上实例仅在有明确操作要求时处理。
+- 技术基准：Next.js 16 App Router、React 19、TypeScript、PostgreSQL 14+、Node.js 24.22.1 与 pnpm 11.13.1。
+- 进程架构：Web 进程与 `pg-boss` Worker 由统一的 Linux supervisor 管理，采用单容器部署。
 
-## 安全边界
+## 安全与凭据模型
 
-- 用户保险库与服务集成凭据是两个独立安全域，禁止混用密钥或加密材料。
-- 保险库明文、主密码、Vault Root Key、TOTP Secret、恢复码和 OTP 只能存在于浏览器 Crypto Worker 中；服务端只接收版本化密文信封。
-- 数据库凭据、Better Auth Secret 和服务加密密钥只能写入加密的 `runtime.enc`；Sub2API Observer Token 必须使用独立服务密钥加密。
-- 禁止将任何凭据或密钥写入 Git、日志、`NEXT_PUBLIC_*` 或生产环境变量。Setup Token 与 Config Master Key 只通过受限文件挂载。
+- 域隔离：用户保险库数据与第三方服务集成凭据采用独立的密钥材料与加密通道。
+- 客户端密码域：主密码、Vault Root Key、明文凭据、TOTP Secret、恢复码及一次性口令的生命周期收敛于浏览器 Crypto Worker 内存；服务端仅处理版本化密文信封与盲索引。
+- 服务端密钥域：Sub2API Observer Token 等服务集成凭据由独立的服务密钥环加密存储。
+- 运行时凭据：数据库凭据、Better Auth Secret 及服务主密钥持久化于加密的 `runtime.enc`；Setup Token 与 Config Master Key 通过受限权限的文件挂载提供，与源码、构建产物、日志及生产环境变量隔离。
 
-## 代码约束
+## 架构与代码组织
 
-- `src/app/api` 仅负责 HTTP 适配；数据库访问、鉴权和领域逻辑放在 `src/server`。
-- Setup 路由必须在数据库和认证单例尚未初始化时可用。
-- 浏览器密码学逻辑放在 `src/crypto`，运行时配置与 supervisor 放在 `src/runtime`，后台任务放在 `src/worker` 与 `src/server/jobs`。
-- 禁止在源码中写死公开域名、WebAuthn Origin、RP ID 或 Sub2API Base URL；域名迁移必须更新受验证的运行时配置，不得信任请求头动态推导身份。
-- 已发布迁移不可修改；新增迁移使用下一个编号，并保持校验和迁移流程有效。
-- 保持依赖版本固定，修改依赖时同步提交 `pnpm-lock.yaml`。
+- 职责分层：
+  - `src/app/api`：负责 HTTP 请求接入、参数校验与协议适配。
+  - `src/server`：承载领域业务逻辑、鉴权控制及数据库访问。
+  - `src/crypto`：负责客户端加密算法、密钥派生及 Worker 通信。
+  - `src/runtime`：负责运行时配置解析、文件解密与 supervisor 进程管理。
+  - `src/worker` 与 `src/server/jobs`：处理异步后台任务与作业编排。
+- 引导生命周期：Setup 路由在数据库连接和认证单例初始化完成前保持可用。
+- 身份与域名：公开域名、WebAuthn Origin、RP ID 及 Sub2API 服务地址依赖经过验证的运行时配置，不依赖客户端请求头动态推导。
+- 数据库演进：已发布的数据库迁移保持不可变；新增结构调整使用下一个递增编号，并同步维护迁移校验和机制。
+- 依赖管理：项目依赖版本精确锁定，更新依赖时同步提交 `pnpm-lock.yaml`。
 
-## 验证与发布
+## 质量验证
 
-- 提交前运行 `pnpm lint`、`pnpm typecheck`、`pnpm test` 和 `pnpm build`；涉及浏览器流程时运行对应 Playwright 测试。
-- 生产发布遵循 `deploy/1panel/README.md`，且必须通过 `deploy/1panel/verify-runtime.sh` 的基线检查。
+- 常规检查：提交前执行 `pnpm lint`、`pnpm typecheck`、`pnpm test` 与 `pnpm build`。
+- 交互验证：涉及浏览器认证与加密流程的变更，补充运行对应 Playwright 端到端测试。
+- 部署验收：生产交付遵循 `deploy/1panel/README.md`，并通过 `deploy/1panel/verify-runtime.sh` 脚本校验。
 
 <!-- BEGIN:nextjs-agent-rules -->
 

@@ -10,7 +10,7 @@ fail() {
 }
 
 node_version="$(node --version)"
-[[ "$node_version" == "v22.22.2" ]] || fail "node_version"
+[[ "$node_version" == "v24.22.1" ]] || fail "node_version"
 [[ -r "$release_root/release-manifest.json" ]] || fail "release_manifest"
 [[ -r "$release_root/.next/standalone/server.js" ]] || fail "web_entry"
 [[ -r "$release_root/dist/worker/index.mjs" ]] || fail "worker_entry"

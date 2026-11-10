@@ -14,7 +14,7 @@ async function main() {
     bundle: true,
     platform: "node",
     format: "esm",
-    target: "node22",
+    target: "node24",
     outbase: path.join(projectRoot, "src"),
     outdir: path.join(projectRoot, "dist"),
     outExtension: { ".js": ".mjs" },

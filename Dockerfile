@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM node:22.22.2-bookworm-slim AS dependencies
+FROM node:24.22.1-bookworm-slim AS dependencies
 WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@11.13.1 --activate
 COPY package.json pnpm-lock.yaml ./
@@ -10,7 +10,7 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm build
 
-FROM node:22.22.2-bookworm-slim AS runtime
+FROM node:24.22.1-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0 \

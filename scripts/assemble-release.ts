@@ -182,7 +182,7 @@ async function main() {
     releaseId: process.env.ACCOUNT_VAULT_RELEASE_ID ?? sha.slice(0, 12),
     gitSha: sha,
     createdAt: new Date().toISOString(),
-    targetNodeVersion: "22.22.2",
+    targetNodeVersion: "24.22.1",
     buildNodeVersion: process.versions.node,
     nodeAbi: process.versions.modules,
     schemaVersion: 8,
